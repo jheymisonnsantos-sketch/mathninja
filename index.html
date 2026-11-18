@@ -1107,7 +1107,7 @@
             update3DBoardCanvas(q.questionText, gameState.level, gameState.score, gameState.lives, "CORTE A RESPOSTA CERTA!");
 
             const isVR = Boolean(renderer && renderer.xr && renderer.xr.isPresenting);
-            const positionsX = [-1.8, -0.6, 0.6, 1.8];
+            const positionsX = isVR ? [-1.65, -0.55, 0.55, 1.65] : [-2.55, -0.85, 0.85, 2.55];
             const shuffledPositions = shuffleArray([...positionsX]);
 
             q.allOptions.forEach((optionValue, idx) => {
@@ -1115,16 +1115,16 @@
                 const fruitMesh = createFruitMesh(optionValue);
 
                 const startX = shuffledPositions[idx];
-                const startY = isVR ? 0.1 : -1.8;
-                const startZ = -2.4 + (Math.random() * 0.3 - 0.15);
+                const startY = isVR ? 0.15 : -1.8;
+                const startZ = isVR ? (-1.25 + (idx % 2) * 0.12) : (-2.4 + (Math.random() * 0.3 - 0.15));
 
                 fruitMesh.position.set(startX, startY, startZ);
                 scene.add(fruitMesh);
 
-                const targetApexY = isVR ? (1.45 + Math.random() * 0.3) : (1.55 + Math.random() * 0.45);
-                const gravity = -4.2 - (gameState.level * 0.25);
+                const targetApexY = isVR ? (1.35 + (idx % 2) * 0.18) : (1.55 + Math.random() * 0.45);
+                const gravity = isVR ? (-3.4 - (gameState.level * 0.2)) : (-4.2 - (gameState.level * 0.25));
                 const initialVy = Math.sqrt(2 * Math.abs(gravity) * (targetApexY - startY));
-                const vx = -startX * 0.18 + (Math.random() - 0.5) * 0.25;
+                const vx = startX * 0.14;
 
                 activeFruits.push({
                     mesh: fruitMesh,
@@ -1199,15 +1199,18 @@
 
         function getBladePoints(saberGroup) {
             saberGroup.updateMatrixWorld(true);
-            const mid = new THREE.Vector3(0, 0.5, 0).applyMatrix4(saberGroup.matrixWorld);
-            const tip = new THREE.Vector3(0, 0.9, 0).applyMatrix4(saberGroup.matrixWorld);
-            return [mid, tip];
+            const points = [];
+            for (let y = 0.2; y <= 0.98; y += 0.19) {
+                points.push(new THREE.Vector3(0, y, 0).applyMatrix4(saberGroup.matrixWorld));
+            }
+            return points;
         }
 
         function checkBladeCollisions() {
             const bladePoints = [];
+            const isVR = Boolean(renderer && renderer.xr && renderer.xr.isPresenting);
 
-            if (renderer && renderer.xr && renderer.xr.isPresenting) {
+            if (isVR) {
                 if (vrSaber0) bladePoints.push(...getBladePoints(vrSaber0));
                 if (vrSaber1) bladePoints.push(...getBladePoints(vrSaber1));
             } else if (gameState.isPointerActive && singleSaber) {
@@ -1221,7 +1224,7 @@
                 const btnPos = new THREE.Vector3();
                 vrStartButton3D.getWorldPosition(btnPos);
                 for (let p of bladePoints) {
-                    if (Math.abs(p.x - btnPos.x) < 1.1 && Math.abs(p.y - btnPos.y) < 0.45 && Math.abs(p.z - btnPos.z) < 0.7) {
+                    if (Math.abs(p.x - btnPos.x) < 1.25 && Math.abs(p.y - btnPos.y) < 0.55 && Math.abs(p.z - btnPos.z) < 0.9) {
                         soundFX.playSlash();
                         createExplosionParticles(btnPos, 0x00f3ff);
                         startGame();
@@ -1232,10 +1235,11 @@
 
             if (!gameState.active || gameState.isWaitingNextWave) return;
 
+            const hitRadius = isVR ? 0.78 : 0.65;
             for (let fruit of activeFruits) {
                 if (fruit.cut) continue;
 
-                const hit = bladePoints.some(p => p.distanceTo(fruit.mesh.position) < 0.65);
+                const hit = bladePoints.some(p => p.distanceTo(fruit.mesh.position) < hitRadius);
                 if (hit) {
                     handleFruitSliced(fruit);
                     break;
