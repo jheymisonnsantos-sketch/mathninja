@@ -154,6 +154,7 @@
                 <button type="button" id="modal-vr-btn" class="hidden vr-btn w-full py-3.5 text-lg font-bold text-white rounded-xl shadow-lg cursor-pointer items-center justify-center gap-2">
                     <i class="fa-solid fa-vr-cardboard"></i> ENTRAR EM MODO VR (ÓCULOS)
                 </button>
+                <p id="vr-status-msg" class="hidden text-xs text-amber-400 mt-1"></p>
             </div>
         </div>
     </div>
@@ -400,29 +401,64 @@
         }
 
         async function enterVRMode() {
+            const statusMsg = document.getElementById('vr-status-msg');
+            if (statusMsg) {
+                statusMsg.classList.add('hidden');
+                statusMsg.innerText = '';
+            }
+
             try {
-                if (!navigator.xr) return;
+                if (!navigator.xr) {
+                    throw new Error("WebXR não suportado neste navegador.");
+                }
+
                 if (currentXRSession) {
                     await currentXRSession.end();
                     return;
                 }
-                const sessionInit = { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] };
-                const session = await navigator.xr.requestSession('immersive-vr', sessionInit);
+
+                soundFX.init();
+
+                // Usa 'local' como base para evitar falhas de limite de sala (bounded-floor) ou hand-tracking
+                if (renderer && renderer.xr) {
+                    renderer.xr.setReferenceSpaceType('local');
+                }
+
+                let session;
+                try {
+                    session = await navigator.xr.requestSession('immersive-vr', {
+                        optionalFeatures: ['local-floor']
+                    });
+                } catch (firstErr) {
+                    // Fallback sem nenhuma feature opcional caso o headset/navegador restrinja
+                    session = await navigator.xr.requestSession('immersive-vr');
+                }
+
                 currentXRSession = session;
 
                 session.addEventListener('end', () => {
                     currentXRSession = null;
                     if (singleSaber) singleSaber.visible = true;
+                    const hudVrBtn = document.getElementById('hud-vr-btn');
+                    if (hudVrBtn) hudVrBtn.innerHTML = '<i class="fa-solid fa-vr-cardboard"></i> Entrar em VR';
                 });
 
                 await renderer.xr.setSession(session);
+
                 if (singleSaber) singleSaber.visible = false;
+
+                const hudVrBtn = document.getElementById('hud-vr-btn');
+                if (hudVrBtn) hudVrBtn.innerHTML = '<i class="fa-solid fa-right-from-bracket"></i> Sair do VR';
 
                 if (!gameState.active) {
                     startGame();
                 }
             } catch (err) {
-                console.warn("Não foi possível iniciar a sessão VR:", err);
+                console.warn("Erro ao iniciar VR:", err);
+                if (statusMsg) {
+                    statusMsg.innerText = "Não foi possível abrir o VR: " + (err.message || "verifique se o headset está conectado e permitido.");
+                    statusMsg.classList.remove('hidden');
+                }
             }
         }
 
@@ -460,10 +496,11 @@
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1.5, 1.2);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
+            renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
 
             // Iluminação do Cenário
@@ -504,18 +541,23 @@
             singleSaber.position.set(0, 0, -1.5);
             scene.add(singleSaber);
 
+            // Grupo de origem do jogador VR para alinhar a altura da câmera e controles
+            const vrRig = new THREE.Group();
+            vrRig.position.set(0, 1.2, 0.8);
+            scene.add(vrRig);
+
             // Controles Espaciais VR (Sabres Duplos nas Mãos)
             vrController0 = renderer.xr.getController(0);
             vrSaber0 = createSaberMesh(0x00f3ff);
             vrSaber0.rotation.x = -Math.PI / 3;
             vrController0.add(vrSaber0);
-            scene.add(vrController0);
+            vrRig.add(vrController0);
 
             vrController1 = renderer.xr.getController(1);
             vrSaber1 = createSaberMesh(0xff0055);
             vrSaber1.rotation.x = -Math.PI / 3;
             vrController1.add(vrSaber1);
-            scene.add(vrController1);
+            vrRig.add(vrController1);
 
             window.addEventListener('resize', onWindowResize);
             window.addEventListener('mousemove', onMouseMove);
