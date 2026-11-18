@@ -426,9 +426,9 @@
 
                 if (singleSaber) singleSaber.visible = false;
                 if (gridHelper) gridHelper.position.y = 0;
-                if (floatingBoardMesh) floatingBoardMesh.position.set(0, 2.35, -4.5);
+                if (floatingBoardMesh) floatingBoardMesh.position.set(0, 2.75, -6.2);
                 if (vrStartButton3D) {
-                    vrStartButton3D.position.set(0, 1.35, -3.5);
+                    vrStartButton3D.position.set(0, 1.45, -4.2);
                     vrStartButton3D.visible = !gameState.active;
                 }
 
@@ -553,25 +553,25 @@
 
             // Botão 3D Interativo para VR (pode ser cortado com o sabre ou ativado no gatilho)
             vrStartButton3D = createVRStartButton3D("▶ CORTAR PARA INICIAR");
-            vrStartButton3D.position.set(0, 1.35, -3.5);
+            vrStartButton3D.position.set(0, 1.45, -4.2);
             vrStartButton3D.visible = false;
             scene.add(vrStartButton3D);
 
             update3DBoardCanvas("MATH NINJA", 1, 0, 3, "CLIQUE EM INICIAR JOGO");
 
             // Sabre Principal (Navegador / Mouse / Touch)
-            singleSaber = createSaberMesh(0x00f3ff);
+            singleSaber = createSaberMesh(0x00f3ff, false);
             singleSaber.position.set(0, 0, -1.5);
             scene.add(singleSaber);
 
             // Controles Espaciais VR
             const laserGeo = new THREE.BufferGeometry().setFromPoints([
                 new THREE.Vector3(0, 0, 0),
-                new THREE.Vector3(0, 0, -5)
+                new THREE.Vector3(0, 0, -6)
             ]);
 
             vrController0 = renderer.xr.getController(0);
-            vrSaber0 = createSaberMesh(0x00f3ff);
+            vrSaber0 = createSaberMesh(0x00f3ff, true);
             vrSaber0.rotation.x = -Math.PI / 4;
             vrController0.add(vrSaber0);
             vrLaser0 = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({ color: 0x00f3ff }));
@@ -582,7 +582,7 @@
             scene.add(vrController0);
 
             vrController1 = renderer.xr.getController(1);
-            vrSaber1 = createSaberMesh(0xff0055);
+            vrSaber1 = createSaberMesh(0xff0055, true);
             vrSaber1.rotation.x = -Math.PI / 4;
             vrController1.add(vrSaber1);
             vrLaser1 = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({ color: 0xff0055 }));
@@ -599,8 +599,10 @@
             renderer.setAnimationLoop(renderLoop);
         }
 
-        function createSaberMesh(colorHex) {
+        function createSaberMesh(colorHex, isVR = false) {
             const saberGroup = new THREE.Group();
+            const bladeLen = isVR ? 1.35 : 0.85;
+            const bladeCenterY = 0.12 + bladeLen / 2;
 
             const hiltGeo = new THREE.CylinderGeometry(0.025, 0.032, 0.24, 16);
             const hiltMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.2 });
@@ -613,22 +615,23 @@
             guard.position.y = 0.12;
             saberGroup.add(guard);
 
-            const bladeGeo = new THREE.CylinderGeometry(0.012, 0.018, 0.85, 16);
+            const bladeGeo = new THREE.CylinderGeometry(0.012, 0.018, bladeLen, 16);
             const bladeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const blade = new THREE.Mesh(bladeGeo, bladeMat);
-            blade.position.y = 0.55;
+            blade.position.y = bladeCenterY;
             saberGroup.add(blade);
 
-            const glowGeo = new THREE.CylinderGeometry(0.032, 0.038, 0.88, 16);
+            const glowGeo = new THREE.CylinderGeometry(0.032, 0.038, bladeLen + 0.03, 16);
             const glowMat = new THREE.MeshBasicMaterial({
                 color: colorHex,
                 transparent: true,
                 opacity: 0.45
             });
             const glow = new THREE.Mesh(glowGeo, glowMat);
-            glow.position.y = 0.55;
+            glow.position.y = bladeCenterY;
             saberGroup.add(glow);
 
+            saberGroup.userData.bladeTipY = 0.12 + bladeLen;
             return saberGroup;
         }
 
@@ -1107,7 +1110,8 @@
             update3DBoardCanvas(q.questionText, gameState.level, gameState.score, gameState.lives, "CORTE A RESPOSTA CERTA!");
 
             const isVR = Boolean(renderer && renderer.xr && renderer.xr.isPresenting);
-            const positionsX = isVR ? [-1.75, -0.6, 0.6, 1.75] : [-2.55, -0.85, 0.85, 2.55];
+            // Em VR, mantém todas as 4 frutas dentro do campo de visão frontal sem espalhar demais
+            const positionsX = isVR ? [-1.05, -0.35, 0.35, 1.05] : [-2.55, -0.85, 0.85, 2.55];
             const shuffledPositions = shuffleArray([...positionsX]);
 
             q.allOptions.forEach((optionValue, idx) => {
@@ -1115,16 +1119,19 @@
                 const fruitMesh = createFruitMesh(optionValue);
 
                 const startX = shuffledPositions[idx];
-                const startY = isVR ? 0.15 : -1.8;
-                const startZ = isVR ? (-1.75 + (idx % 2) * 0.12) : (-2.4 + (Math.random() * 0.3 - 0.15));
+                const startY = isVR ? 0.25 : -1.8;
+                const startZ = isVR ? (-2.15 - (idx % 2) * 0.12) : (-2.4 + (Math.random() * 0.3 - 0.15));
 
                 fruitMesh.position.set(startX, startY, startZ);
+                if (isVR) {
+                    fruitMesh.scale.setScalar(0.85);
+                }
                 scene.add(fruitMesh);
 
-                const targetApexY = isVR ? (1.35 + (idx % 2) * 0.18) : (1.55 + Math.random() * 0.45);
-                const gravity = isVR ? (-3.4 - (gameState.level * 0.2)) : (-4.2 - (gameState.level * 0.25));
+                const targetApexY = isVR ? (1.28 + (idx % 2) * 0.16) : (1.55 + Math.random() * 0.45);
+                const gravity = isVR ? (-2.8 - (gameState.level * 0.15)) : (-4.2 - (gameState.level * 0.25));
                 const initialVy = Math.sqrt(2 * Math.abs(gravity) * (targetApexY - startY));
-                const vx = startX * 0.14;
+                const vx = isVR ? (startX * 0.04) : (startX * 0.14);
 
                 activeFruits.push({
                     mesh: fruitMesh,
@@ -1201,7 +1208,10 @@
         function getBladePoints(saberGroup) {
             saberGroup.updateMatrixWorld(true);
             const points = [];
-            for (let y = 0.2; y <= 0.98; y += 0.19) {
+            const tipY = saberGroup.userData.bladeTipY || 0.98;
+            const steps = 6;
+            for (let i = 0; i <= steps; i++) {
+                const y = 0.2 + ((tipY - 0.2) * (i / steps));
                 points.push(new THREE.Vector3(0, y, 0).applyMatrix4(saberGroup.matrixWorld));
             }
             return points;
@@ -1220,12 +1230,12 @@
 
             if (bladePoints.length === 0) return;
 
-            // Permite iniciar/reiniciar cortando o botão 3D no modo VR
+            // Permite iniciar/reiniciar cortando o botão 3D no modo VR (ou apontando o sabre até ele)
             if (!gameState.active && vrStartButton3D && vrStartButton3D.visible) {
                 const btnPos = new THREE.Vector3();
                 vrStartButton3D.getWorldPosition(btnPos);
                 for (let p of bladePoints) {
-                    if (Math.abs(p.x - btnPos.x) < 1.25 && Math.abs(p.y - btnPos.y) < 0.55 && Math.abs(p.z - btnPos.z) < 0.9) {
+                    if (Math.abs(p.x - btnPos.x) < 1.3 && Math.abs(p.y - btnPos.y) < 0.65 && Math.abs(p.z - btnPos.z) < 2.2) {
                         soundFX.playSlash();
                         createExplosionParticles(btnPos, 0x00f3ff);
                         startGame();
@@ -1237,7 +1247,7 @@
             if (!gameState.active || gameState.isWaitingNextWave) return;
 
             const now = performance.now();
-            const hitRadius = isVR ? 0.46 : 0.62;
+            const hitRadius = isVR ? 0.48 : 0.62;
             for (let fruit of activeFruits) {
                 if (fruit.cut) continue;
                 // Evita corte acidental no exato instante em que a fruta nasce
