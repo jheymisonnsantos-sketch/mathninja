@@ -96,17 +96,17 @@
         </div>
 
         <!-- Bottom Actions -->
-        <div class="flex justify-between items-center w-full max-w-5xl mx-auto pointer-events-auto">
-            <button type="button" id="audio-toggle" onclick="toggleAudio()" class="bg-slate-800/80 text-cyan-400 p-3 rounded-full hover:bg-slate-700 neon-border transition cursor-pointer">
+        <div class="flex justify-between items-center w-full max-w-5xl mx-auto pointer-events-auto relative z-30">
+            <button type="button" id="audio-toggle" class="bg-slate-800/80 text-cyan-400 p-3 rounded-full hover:bg-slate-700 neon-border transition cursor-pointer">
                 <i id="audio-icon" class="fa-solid fa-volume-high text-xl"></i>
             </button>
 
             <!-- Mode & VR Selector -->
             <div id="mode-controls" class="flex gap-3">
-                <button type="button" id="hud-vr-btn" onclick="handleVRButtonClick()" class="hidden vr-btn text-white font-bold px-4 py-2 md:px-5 md:py-3 rounded-full items-center gap-2 text-xs md:text-sm cursor-pointer">
+                <button type="button" id="hud-vr-btn" class="hidden vr-btn text-white font-bold px-4 py-2 md:px-5 md:py-3 rounded-full items-center gap-2 text-xs md:text-sm cursor-pointer">
                     <i class="fa-solid fa-vr-cardboard"></i> Entrar em VR
                 </button>
-                <button type="button" id="mode-toggle-btn" onclick="toggleGameMode()" class="bg-slate-800/90 text-cyan-300 font-bold px-4 py-2 md:px-5 md:py-3 rounded-full flex items-center gap-2 neon-border hover:bg-cyan-950 transition text-xs md:text-sm cursor-pointer">
+                <button type="button" id="mode-toggle-btn" class="bg-slate-800/90 text-cyan-300 font-bold px-4 py-2 md:px-5 md:py-3 rounded-full flex items-center gap-2 neon-border hover:bg-cyan-950 transition text-xs md:text-sm cursor-pointer">
                     <i class="fa-solid fa-desktop"></i> <span id="mode-text">Modo: Navegador (Mouse)</span>
                 </button>
             </div>
@@ -114,7 +114,7 @@
     </div>
 
     <!-- Start / Game Over Modal -->
-    <div id="modal-screen" class="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+    <div id="modal-screen" class="absolute inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 pointer-events-auto">
         <div class="bg-slate-900 neon-border max-w-lg w-full p-8 rounded-3xl text-center shadow-2xl relative overflow-hidden">
             <div class="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/20 rounded-full blur-2xl pointer-events-none"></div>
             <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-pink-500/20 rounded-full blur-2xl pointer-events-none"></div>
@@ -141,17 +141,17 @@
             <!-- Mode Selection inside modal -->
             <div class="mb-6 bg-slate-800/60 p-3 rounded-xl flex flex-wrap justify-center items-center gap-3">
                 <span class="text-xs text-slate-300 uppercase font-semibold">Dispositivo:</span>
-                <button type="button" id="modal-mode-btn" onclick="toggleGameMode()" class="bg-cyan-950 text-cyan-300 border border-cyan-400 text-xs px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold cursor-pointer hover:bg-cyan-900 transition">
+                <button type="button" id="modal-mode-btn" class="bg-cyan-950 text-cyan-300 border border-cyan-400 text-xs px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold cursor-pointer hover:bg-cyan-900 transition">
                     <i class="fa-solid fa-mouse"></i> Controles no Navegador
                 </button>
             </div>
 
             <div class="flex flex-col gap-3">
-                <button type="button" id="start-btn" onclick="startGame()" class="neon-btn w-full py-4 text-xl font-bold text-white rounded-xl shadow-lg cursor-pointer">
+                <button type="button" id="start-btn" class="neon-btn w-full py-4 text-xl font-bold text-white rounded-xl shadow-lg cursor-pointer">
                     <i class="fa-solid fa-play mr-2"></i> INICIAR JOGO
                 </button>
 
-                <button type="button" id="modal-vr-btn" onclick="handleVRButtonClick()" class="hidden vr-btn w-full py-3.5 text-lg font-bold text-white rounded-xl shadow-lg cursor-pointer items-center justify-center gap-2">
+                <button type="button" id="modal-vr-btn" class="hidden vr-btn w-full py-3.5 text-lg font-bold text-white rounded-xl shadow-lg cursor-pointer items-center justify-center gap-2">
                     <i class="fa-solid fa-vr-cardboard"></i> ENTRAR EM MODO VR (ÓCULOS)
                 </button>
                 <p id="vr-status-msg" class="hidden text-xs text-amber-400 mt-1"></p>
@@ -1506,9 +1506,35 @@
         // ==========================================
         // 11. INITIALIZATION
         // ==========================================
+        function bindButtons() {
+            const startBtn = document.getElementById('start-btn');
+            const audioBtn = document.getElementById('audio-toggle');
+            const modeBtn = document.getElementById('mode-toggle-btn');
+            const modalModeBtn = document.getElementById('modal-mode-btn');
+            const hudVrBtn = document.getElementById('hud-vr-btn');
+            const modalVrBtn = document.getElementById('modal-vr-btn');
+
+            if (startBtn) startBtn.addEventListener('click', startGame);
+            if (audioBtn) audioBtn.addEventListener('click', toggleAudio);
+            if (modeBtn) modeBtn.addEventListener('click', toggleGameMode);
+            if (modalModeBtn) modalModeBtn.addEventListener('click', toggleGameMode);
+            if (hudVrBtn) hudVrBtn.addEventListener('click', handleVRButtonClick);
+            if (modalVrBtn) modalVrBtn.addEventListener('click', handleVRButtonClick);
+        }
+
+        window.startGame = startGame;
+        window.toggleAudio = toggleAudio;
+        window.toggleGameMode = toggleGameMode;
+        window.handleVRButtonClick = handleVRButtonClick;
+
         function bootstrap() {
+            bindButtons();
             try {
-                initEngine();
+                if (typeof THREE !== 'undefined') {
+                    initEngine();
+                } else {
+                    console.error("Three.js não foi carregado.");
+                }
             } catch (err) {
                 console.error("Erro ao inicializar motor 3D:", err);
             }
