@@ -409,7 +409,7 @@
 
             try {
                 if (!navigator.xr) {
-                    throw new Error("WebXR não suportado neste navegador.");
+                    throw new Error("WebXR não disponível neste navegador ou dispositivo.");
                 }
 
                 if (currentXRSession) {
@@ -419,29 +419,16 @@
 
                 soundFX.init();
 
-                // Tenta usar 'local-floor' para que o chão real corresponda a y = 0
-                let session;
-                let refSpaceType = 'local-floor';
-                try {
-                    session = await navigator.xr.requestSession('immersive-vr', {
-                        optionalFeatures: ['local-floor']
-                    });
-                } catch (firstErr) {
-                    refSpaceType = 'local';
-                    session = await navigator.xr.requestSession('immersive-vr');
-                }
-
-                if (renderer && renderer.xr) {
-                    renderer.xr.setReferenceSpaceType(refSpaceType);
-                }
-
+                // Solicita sessão immersive-vr de forma padrão e limpa
+                const sessionInit = { optionalFeatures: ['local-floor', 'bounded-floor'] };
+                const session = await navigator.xr.requestSession('immersive-vr', sessionInit);
                 currentXRSession = session;
 
                 session.addEventListener('end', () => {
                     currentXRSession = null;
                     if (singleSaber) singleSaber.visible = true;
-                    if (vrRig) vrRig.position.set(0, 0, 0);
                     if (gridHelper) gridHelper.position.y = -2;
+                    if (floatingBoardMesh) floatingBoardMesh.position.set(0, 3.25, -4.8);
                     if (camera) camera.position.set(0, 1.5, 1.2);
                     const hudVrBtn = document.getElementById('hud-vr-btn');
                     if (hudVrBtn) hudVrBtn.innerHTML = '<i class="fa-solid fa-vr-cardboard"></i> Entrar em VR';
@@ -449,13 +436,10 @@
 
                 await renderer.xr.setSession(session);
 
-                // Alinha o chão e a posição do jogador no espaço VR
+                // Ajusta a cena para escala real em pé/sentado no VR (chão em y = 0)
                 if (singleSaber) singleSaber.visible = false;
                 if (gridHelper) gridHelper.position.y = 0;
-                if (vrRig) {
-                    // Se o headset não suportar local-floor (y=0 nos olhos), ajusta o rig para baixo
-                    vrRig.position.set(0, refSpaceType === 'local' ? -1.4 : 0, 0.5);
-                }
+                if (floatingBoardMesh) floatingBoardMesh.position.set(0, 2.3, -4.5);
 
                 const hudVrBtn = document.getElementById('hud-vr-btn');
                 if (hudVrBtn) hudVrBtn.innerHTML = '<i class="fa-solid fa-right-from-bracket"></i> Sair do VR';
@@ -466,19 +450,20 @@
             } catch (err) {
                 console.warn("Erro ao iniciar VR:", err);
                 if (statusMsg) {
-                    statusMsg.innerText = "Não foi possível abrir o VR: " + (err.message || "verifique se o headset está conectado e permitido.");
+                    statusMsg.innerText = "Aviso VR: " + (err.message || "Não foi possível iniciar a sessão VR.");
                     statusMsg.classList.remove('hidden');
                 }
             }
         }
 
         function setupWebXRSupport() {
+            const modalVrBtn = document.getElementById('modal-vr-btn');
+            const hudVrBtn = document.getElementById('hud-vr-btn');
+
             try {
                 if ('xr' in navigator && navigator.xr && navigator.xr.isSessionSupported) {
                     navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
                         if (supported) {
-                            const modalVrBtn = document.getElementById('modal-vr-btn');
-                            const hudVrBtn = document.getElementById('hud-vr-btn');
                             if (modalVrBtn) {
                                 modalVrBtn.classList.remove('hidden');
                                 modalVrBtn.classList.add('flex');
@@ -510,7 +495,6 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
-            renderer.xr.setReferenceSpaceType('local-floor');
             container.appendChild(renderer.domElement);
 
             // Iluminação do Cenário
@@ -551,23 +535,18 @@
             singleSaber.position.set(0, 0, -1.5);
             scene.add(singleSaber);
 
-            // Grupo de origem do jogador VR (mantido em 0,0,0 para sincronizar 1:1 com as mãos reais)
-            vrRig = new THREE.Group();
-            vrRig.position.set(0, 0, 0);
-            scene.add(vrRig);
-
-            // Controles Espaciais VR (Sabres Duplos nas Mãos)
+            // Controles Espaciais VR adicionados diretamente na cena para rastreamento 1:1 sem distorção
             vrController0 = renderer.xr.getController(0);
             vrSaber0 = createSaberMesh(0x00f3ff);
-            vrSaber0.rotation.x = -Math.PI / 3;
+            vrSaber0.rotation.x = -Math.PI / 4;
             vrController0.add(vrSaber0);
-            vrRig.add(vrController0);
+            scene.add(vrController0);
 
             vrController1 = renderer.xr.getController(1);
             vrSaber1 = createSaberMesh(0xff0055);
-            vrSaber1.rotation.x = -Math.PI / 3;
+            vrSaber1.rotation.x = -Math.PI / 4;
             vrController1.add(vrSaber1);
-            vrRig.add(vrController1);
+            scene.add(vrController1);
 
             window.addEventListener('resize', onWindowResize);
             window.addEventListener('mousemove', onMouseMove);
@@ -1100,26 +1079,26 @@
                     pos[j * 3 + 1] += p.velocities[j * 3 + 1] * delta;
                     pos[j * 3 + 2] += p.velocities[j * 3 + 2] * delta;
                     p.velocities[j * 3 + 1] -= 9.8 * delta;
-                }
-                p.mesh.geometry.attributes.position.needsUpdate = true;
-            }
-        }
-
-        function getBladeTipPosition(saberGroup) {
-            const tipPos = new THREE.Vector3(0, 0.8, 0);
-            return saberGroup.localToWorld(tipPos);
+        function getBladePoints(saberGroup) {
+            saberGroup.updateMatrixWorld(true);
+            const midPos = new THREE.Vector3(0, 0.45, 0);
+            const tipPos = new THREE.Vector3(0, 0.85, 0);
+            return [
+                saberGroup.localToWorld(midPos),
+                saberGroup.localToWorld(tipPos)
+            ];
         }
 
         function checkSaberCollisions() {
             if (!gameState.active || gameState.isWaitingNextWave) return;
 
-            const saberTips = [];
+            let saberPoints = [];
 
             if (renderer && renderer.xr && renderer.xr.isPresenting) {
-                if (vrSaber0) saberTips.push(getBladeTipPosition(vrSaber0));
-                if (vrSaber1) saberTips.push(getBladeTipPosition(vrSaber1));
+                if (vrSaber0) saberPoints = saberPoints.concat(getBladePoints(vrSaber0));
+                if (vrSaber1) saberPoints = saberPoints.concat(getBladePoints(vrSaber1));
             } else if (singleSaber) {
-                saberTips.push(getBladeTipPosition(singleSaber));
+                saberPoints = saberPoints.concat(getBladePoints(singleSaber));
             }
 
             for (let i = fruits.length - 1; i >= 0; i--) {
@@ -1129,9 +1108,9 @@
                 const fruitPos = fruit.group.position;
                 let hitDetected = false;
 
-                for (let tipPos of saberTips) {
-                    const dist = fruitPos.distanceTo(tipPos);
-                    if (dist < fruit.radius + 0.65) {
+                for (let pt of saberPoints) {
+                    const dist = fruitPos.distanceTo(pt);
+                    if (dist < fruit.radius + 0.55) {
                         hitDetected = true;
                         break;
                     }
