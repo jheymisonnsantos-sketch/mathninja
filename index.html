@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Math Ninja</title>
+    <!-- Tailwind CSS para UI 2D -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .neon-border {
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.4), inset 0 0 15px rgba(0, 243, 255, 0.2);
+            border: 2px solid #00f3ff;
+        }
+        .neon-btn {
+            background: linear-gradient(135deg, rgba(0, 243, 255, 0.3), rgba(255, 0, 85, 0.3));
+            transition: all 0.3s ease;
+            border: 2px solid #00f3ff;
+        }
+        .neon-btn:hover {
+            background: linear-gradient(135deg, rgba(0, 243, 255, 0.6), rgba(255, 0, 85, 0.6));
+            box-shadow: 0 0 25px rgba(0, 243, 255, 0.9);
+            transform: scale(1.03);
+        }
+        .vr-btn {
+            background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(0, 243, 255, 0.4));
+            border: 2px solid #a855f7;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.5);
+            transition: all 0.3s ease;
+        }
+        .vr-btn:hover {
+            background: linear-gradient(135deg, rgba(168, 85, 247, 0.7), rgba(0, 243, 255, 0.7));
+            box-shadow: 0 0 25px rgba(168, 85, 247, 0.9);
+            transform: scale(1.03);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- 2D HUD / Control Overlay -->
+    <div id="ui-overlay" class="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-4 md:p-6">
+        
+        <!-- Top Bar: Stats Display -->
+        <div class="flex flex-col md:flex-row justify-between items-center gap-4 w-full max-w-5xl mx-auto">
+            <!-- Score & Level Card -->
+            <div class="bg-slate-900/80 backdrop-blur-md p-4 rounded-xl neon-border flex items-center gap-6 text-white min-w-[240px] justify-around">
+                <div class="text-center">
+                    <p class="text-xs text-cyan-400 font-semibold tracking-wider uppercase">Pontuação</p>
+                    <p id="ui-score" class="text-3xl font-black text-cyan-300">0</p>
+                </div>
+                <div class="w-px h-10 bg-cyan-500/30"></div>
+                <div class="text-center">
+                    <p class="text-xs text-purple-400 font-semibold tracking-wider uppercase">Nível</p>
+                    <p id="ui-level" class="text-3xl font-black text-purple-300">1</p>
+                </div>
+            </div>
+
+            <!-- Lives Counter -->
+            <div class="bg-slate-900/80 backdrop-blur-md p-4 rounded-xl neon-border flex items-center gap-2">
+                <span class="text-xs text-red-400 font-semibold tracking-wider uppercase mr-2">Vidas:</span>
+                <div id="ui-lives" class="flex gap-2 text-2xl text-red-500">
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Desktop Controls Tip -->
+        <div id="desktop-tip" class="text-center text-cyan-400/90 text-xs md:text-sm bg-black/60 backdrop-blur-xs py-2 px-6 rounded-full max-w-md mx-auto pointer-events-none border border-cyan-500/30 transition-opacity duration-300">
+            <i class="fa-solid fa-hand-pointer mr-2"></i> Deslize a espada laser para cortar a resposta correta!
+        </div>
+
+        <!-- Bottom Actions -->
+        <div class="flex justify-between items-center w-full max-w-5xl mx-auto pointer-events-auto">
+            <button type="button" id="audio-toggle" class="bg-slate-800/80 text-cyan-400 p-3 rounded-full hover:bg-slate-700 neon-border transition cursor-pointer">
+                <i id="audio-icon" class="fa-solid fa-volume-high text-xl"></i>
+            </button>
+
+            <!-- Mode & VR Selector -->
+            <div id="mode-controls" class="flex gap-3">
+                <button type="button" id="hud-vr-btn" class="hidden vr-btn text-white font-bold px-4 py-2 md:px-5 md:py-3 rounded-full items-center gap-2 text-xs md:text-sm cursor-pointer">
+                    <i class="fa-solid fa-vr-cardboard"></i> Entrar em VR
+                </button>
+                <button type="button" id="mode-toggle-btn" class="bg-slate-800/90 text-cyan-300 font-bold px-4 py-2 md:px-5 md:py-3 rounded-full flex items-center gap-2 neon-border hover:bg-cyan-950 transition text-xs md:text-sm cursor-pointer">
+                    <i class="fa-solid fa-desktop"></i> <span id="mode-text">Modo: Navegador (Mouse)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start / Game Over Modal -->
+    <div id="modal-screen" class="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-slate-900 neon-border max-w-lg w-full p-8 rounded-3xl text-center shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/20 rounded-full blur-2xl pointer-events-none"></div>
+            <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-pink-500/20 rounded-full blur-2xl pointer-events-none"></div>
+
+            <h1 id="modal-title" class="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 mb-3 tracking-wider">
+                MATH NINJA
+            </h1>
+            <p id="modal-subtitle" class="text-slate-300 text-sm md:text-base mb-6">
+                Prepare seus reflexos! Calcule mentalmente a conta na placa 3D e corte a fruta com o resultado certo antes que ela caia.
+            </p>
+
+            <!-- Stats (Visible on Game Over) -->
+            <div id="modal-stats" class="hidden grid-cols-2 gap-4 mb-6 bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                <div>
+                    <p class="text-xs text-slate-400 uppercase">Pontuação Final</p>
+                    <p id="final-score" class="text-3xl font-bold text-cyan-400">0</p>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-400 uppercase">Nível Alcançado</p>
+                    <p id="final-level" class="text-3xl font-bold text-pink-400">1</p>
+                </div>
+            </div>
+
+            <!-- Mode Selection inside modal -->
+            <div class="mb-6 bg-slate-800/60 p-3 rounded-xl flex flex-wrap justify-center items-center gap-3">
+                <span class="text-xs text-slate-300 uppercase font-semibold">Dispositivo:</span>
+                <button type="button" id="modal-mode-btn" class="bg-cyan-950 text-cyan-300 border border-cyan-400 text-xs px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold cursor-pointer hover:bg-cyan-900 transition">
+                    <i class="fa-solid fa-mouse"></i> Controles no Navegador
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-3">
+                <button type="button" id="start-btn" class="neon-btn w-full py-4 text-xl font-bold text-white rounded-xl shadow-lg cursor-pointer">
+                    <i class="fa-solid fa-play mr-2"></i> INICIAR JOGO
+                </button>
+
+                <button type="button" id="modal-vr-btn" class="hidden vr-btn w-full py-3.5 text-lg font-bold text-white rounded-xl shadow-lg cursor-pointer items-center justify-center gap-2">
+                    <i class="fa-solid fa-vr-cardboard"></i> ENTRAR EM MODO VR (ÓCULOS)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // ==========================================
+        // 1. SOUND EFFECTS SYSTEM (WEB AUDIO API)
+        // ==========================================
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+
+            init() {
+                try {
+                    if (!this.ctx) {
+                        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                        if (AudioCtx) this.ctx = new AudioCtx();
+                    }
+                    if (this.ctx && this.ctx.state === 'suspended') {
+                        this.ctx.resume();
+                    }
+                } catch (e) {
+                    console.warn("AudioContext indisponível:", e);
+                }
+            }
+
+            playSlash() {
+                if (!this.enabled) return;
+                this.init();
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(100, now + 0.15);
+
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.15);
+            }
+
+            playCorrect() {
+                if (!this.enabled) return;
+                this.init();
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+
+                    gain.gain.setValueAtTime(0.2, now + idx * 0.06);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.2);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+
+                    osc.start(now + idx * 0.06);
+                    osc.stop(now + idx * 0.06 + 0.2);
+                });
+            }
+
+            playWrong() {
+                if (!this.enabled) return;
+                this.init();
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(180, now);
+                osc.frequency.linearRampToValueAtTime(80, now + 0.3);
+
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+        }
+
+        const soundFX = new SoundFX();
+
+        // ==========================================
+        // 2. MATH GENERATOR LOGIC
+        // ==========================================
+        function generateMathQuestion(level) {
+            let num1, num2, op, answer, text;
+            let valid = false;
+
+            while (!valid) {
+                if (level === 1) {
+                    op = '+';
+                    num1 = Math.floor(Math.random() * 20) + 1;
+                    num2 = Math.floor(Math.random() * 20) + 1;
+                    answer = num1 + num2;
+                } else if (level === 2) {
+                    op = Math.random() > 0.5 ? '+' : '-';
+                    if (op === '+') {
+                        num1 = Math.floor(Math.random() * 45) + 5;
+                        num2 = Math.floor(Math.random() * 45) + 1;
+                        answer = num1 + num2;
+                    } else {
+                        num1 = Math.floor(Math.random() * 60) + 10;
+                        num2 = Math.floor(Math.random() * num1);
+                        answer = num1 - num2;
+                    }
+                } else if (level === 3) {
+                    const r = Math.random();
+                    if (r < 0.5) {
+                        op = '×';
+                        num1 = Math.floor(Math.random() * 9) + 2;
+                        num2 = Math.floor(Math.random() * 10) + 1;
+                        answer = num1 * num2;
+                    } else {
+                        op = Math.random() > 0.5 ? '+' : '-';
+                        num1 = Math.floor(Math.random() * 60) + 10;
+                        num2 = op === '+' ? Math.floor(Math.random() * 30) : Math.floor(Math.random() * num1);
+                        answer = op === '+' ? num1 + num2 : num1 - num2;
+                    }
+                } else {
+                    const r = Math.random();
+                    if (r < 0.4) {
+                        op = '×';
+                        num1 = Math.floor(Math.random() * 11) + 2;
+                        num2 = Math.floor(Math.random() * 8) + 2;
+                        answer = num1 * num2;
+                    } else if (r < 0.7) {
+                        op = '÷';
+                        num2 = Math.floor(Math.random() * 9) + 2;
+                        answer = Math.floor(Math.random() * 15) + 1;
+                        num1 = num2 * answer;
+                    } else {
+                        op = Math.random() > 0.5 ? '+' : '-';
+                        num1 = Math.floor(Math.random() * 70) + 10;
+                        num2 = op === '+' ? Math.floor(Math.random() * 25) : Math.floor(Math.random() * num1);
+                        answer = op === '+' ? num1 + num2 : num1 - num2;
+                    }
+                }
+
+                if (answer >= 0 && answer <= 99) {
+                    valid = true;
+                }
+            }
+
+            text = `${num1} ${op} ${num2} = ?`;
+
+            let distractors = new Set();
+            while (distractors.size < 3) {
+                let offset = (Math.floor(Math.random() * 6) + 1) * (Math.random() > 0.5 ? 1 : -1);
+                let wrong = answer + offset;
+                if (wrong >= 0 && wrong <= 99 && wrong !== answer) {
+                    distractors.add(wrong);
+                }
+            }
+
+            return {
+                questionText: text,
+                correctAnswer: answer,
+                allOptions: shuffleArray([answer, ...Array.from(distractors)])
+            };
+        }
+
+        function shuffleArray(arr) {
+            return arr.sort(() => Math.random() - 0.5);
+        }
+
+        // ==========================================
+        // 3. THREE.JS & WEBXR (VR) ENGINE SETUP
+        // ==========================================
+        let scene, camera, renderer;
+        let singleSaber, vrController0, vrController1, vrSaber0, vrSaber1;
+        let currentXRSession = null;
+        let fruits = [];
+        let particles = [];
+        let floatingBoardMesh, boardCanvas, boardContext, boardTexture;
+        let spawnTimeoutId = null;
+
+        let gameState = {
+            active: false,
+            score: 0,
+            lives: 3,
+            level: 1,
+            currentQuestion: null,
+            speedMultiplier: 1.0,
+            isWaitingNextWave: false,
+            isTouchMode: false
+        };
+
+        const mouseVector = new THREE.Vector2(0, 0);
+
+        const FRUIT_TYPES = [
+            { name: 'Watermelon', color: 0x22c55e, shape: 'watermelon', size: 0.45 },
+            { name: 'Apple', color: 0xef4444, shape: 'apple', size: 0.38 },
+            { name: 'Banana', color: 0xeab308, shape: 'banana', size: 0.42 },
+            { name: 'Pineapple', color: 0xf59e0b, shape: 'pineapple', size: 0.45 }
+        ];
+
+        function createSaberMesh(bladeColorHex) {
+            const saberGroup = new THREE.Group();
+            const hiltGeo = new THREE.CylinderGeometry(0.02, 0.025, 0.25, 12);
+            const hiltMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.3 });
+            const hilt = new THREE.Mesh(hiltGeo, hiltMat);
+            hilt.position.y = -0.12;
+
+            const bladeGeo = new THREE.CylinderGeometry(0.015, 0.005, 0.9, 12);
+            const bladeMat = new THREE.MeshBasicMaterial({ color: bladeColorHex });
+            const blade = new THREE.Mesh(bladeGeo, bladeMat);
+            blade.position.y = 0.45;
+
+            saberGroup.add(hilt);
+            saberGroup.add(blade);
+            return saberGroup;
+        }
+
+        function toggleGameMode() {
+            gameState.isTouchMode = !gameState.isTouchMode;
+            const modeText = document.getElementById('mode-text');
+            const modalBtn = document.getElementById('modal-mode-btn');
+            
+            if (gameState.isTouchMode) {
+                if (modeText) modeText.innerText = "Modo: Sensível (Touch/Arraste)";
+                if (modalBtn) modalBtn.innerHTML = '<i class="fa-solid fa-hand-pointer"></i> Controles por Toque';
+            } else {
+                if (modeText) modeText.innerText = "Modo: Navegador (Mouse)";
+                if (modalBtn) modalBtn.innerHTML = '<i class="fa-solid fa-mouse"></i> Controles no Navegador';
+            }
+        }
+
+        async function enterVRMode() {
+            try {
+                if (!navigator.xr) return;
+                if (currentXRSession) {
+                    await currentXRSession.end();
+                    return;
+                }
+                const sessionInit = { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] };
+                const session = await navigator.xr.requestSession('immersive-vr', sessionInit);
+                currentXRSession = session;
+
+                session.addEventListener('end', () => {
+                    currentXRSession = null;
+                    if (singleSaber) singleSaber.visible = true;
+                });
+
+                await renderer.xr.setSession(session);
+                if (singleSaber) singleSaber.visible = false;
+
+                if (!gameState.active) {
+                    startGame();
+                }
+            } catch (err) {
+                console.warn("Não foi possível iniciar a sessão VR:", err);
+            }
+        }
+
+        function setupWebXRSupport() {
+            try {
+                if ('xr' in navigator && navigator.xr && navigator.xr.isSessionSupported) {
+                    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+                        if (supported) {
+                            const modalVrBtn = document.getElementById('modal-vr-btn');
+                            const hudVrBtn = document.getElementById('hud-vr-btn');
+                            if (modalVrBtn) {
+                                modalVrBtn.classList.remove('hidden');
+                                modalVrBtn.classList.add('flex');
+                            }
+                            if (hudVrBtn) {
+                                hudVrBtn.classList.remove('hidden');
+                                hudVrBtn.classList.add('flex');
+                            }
+                        }
+                    }).catch(() => {});
+                }
+            } catch (e) {
+                console.warn("WebXR check ignorado:", e);
+            }
+        }
+
+        function initEngine() {
+            const container = document.getElementById('canvas-container');
+            if (!container || typeof THREE === 'undefined') return;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a1a);
+            scene.fog = new THREE.FogExp2(0x0a0a1a, 0.04);
+
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.5, 1.2);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Iluminação do Cenário
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0x00f3ff, 0.9);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+
+            const backLight = new THREE.PointLight(0xff0055, 1.2, 20);
+            backLight.position.set(0, 3, -6);
+            scene.add(backLight);
+
+            // Grid Neon no Chão
+            const gridHelper = new THREE.GridHelper(30, 30, 0x00f3ff, 0x1e1b4b);
+            gridHelper.position.y = -2;
+            scene.add(gridHelper);
+
+            // Painel 3D das Contas (no topo da visão)
+            boardCanvas = document.createElement('canvas');
+            boardCanvas.width = 1024;
+            boardCanvas.height = 512;
+            boardContext = boardCanvas.getContext('2d');
+            boardTexture = new THREE.CanvasTexture(boardCanvas);
+
+            const boardGeo = new THREE.PlaneGeometry(4.2, 2.1);
+            const boardMat = new THREE.MeshBasicMaterial({ map: boardTexture, transparent: true, opacity: 1 });
+            floatingBoardMesh = new THREE.Mesh(boardGeo, boardMat);
+            floatingBoardMesh.position.set(0, 3.25, -4.8);
+            floatingBoardMesh.rotation.x = 0.15;
+            scene.add(floatingBoardMesh);
+
+            update3DBoardCanvas("MATH NINJA", 1, 0, 3, "CLIQUE EM INICIAR JOGO");
+
+            // Sabre Principal (Navegador / Mouse / Touch)
+            singleSaber = createSaberMesh(0x00f3ff);
+            singleSaber.position.set(0, 0, -1.5);
+            scene.add(singleSaber);
+
+            // Controles Espaciais VR (Sabres Duplos nas Mãos)
+            vrController0 = renderer.xr.getController(0);
+            vrSaber0 = createSaberMesh(0x00f3ff);
+            vrSaber0.rotation.x = -Math.PI / 3;
+            vrController0.add(vrSaber0);
+            scene.add(vrController0);
+
+            vrController1 = renderer.xr.getController(1);
+            vrSaber1 = createSaberMesh(0xff0055);
+            vrSaber1.rotation.x = -Math.PI / 3;
+            vrController1.add(vrSaber1);
+            scene.add(vrController1);
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('touchmove', onTouchMove, { passive: false });
+
+            setupWebXRSupport();
+            renderer.setAnimationLoop(renderLoop);
+        }
+
+        // ==========================================
+        // 4. BOARD TRANSITIONS & SCHEDULING
+        // ==========================================
+        function scheduleNextQuestion(delaySeconds = 1.5) {
+            if (spawnTimeoutId) clearTimeout(spawnTimeoutId);
+
+            spawnTimeoutId = setTimeout(() => {
+                if (!gameState.active) return;
+
+                const nextQ = generateMathQuestion(gameState.level);
+                gameState.currentQuestion = nextQ;
+
+                animateBoardTransition(nextQ.questionText, () => {
+                    gameState.isWaitingNextWave = false;
+                    spawnFruitWave();
+                });
+            }, delaySeconds * 1000);
+        }
+
+        function animateBoardTransition(newQuestionText, callback) {
+            if (floatingBoardMesh && floatingBoardMesh.material) {
+                floatingBoardMesh.material.transparent = true;
+            }
+
+            let startFadeOut = performance.now();
+            
+            function fadeOutStep(timestamp) {
+                let elapsed = timestamp - startFadeOut;
+                let progress = Math.min(elapsed / 350, 1);
+                
+                if (floatingBoardMesh && floatingBoardMesh.material) {
+                    floatingBoardMesh.material.opacity = 1 - progress * 0.9;
+                }
+
+                if (progress < 1) {
+                    requestAnimationFrame(fadeOutStep);
+                } else {
+                    update3DBoardCanvas(
+                        newQuestionText,
+                        gameState.level,
+                        gameState.score,
+                        gameState.lives,
+                        "PREPARE-SE!"
+                    );
+
+                    setTimeout(() => {
+                        let startFadeIn = performance.now();
+
+                        function fadeInStep(timestampIn) {
+                            let elapsedIn = timestampIn - startFadeIn;
+                            let progressIn = Math.min(elapsedIn / 350, 1);
+
+                            if (floatingBoardMesh && floatingBoardMesh.material) {
+                                floatingBoardMesh.material.opacity = 0.1 + (progressIn * 0.9);
+                            }
+
+                            if (progressIn < 1) {
+                                requestAnimationFrame(fadeInStep);
+                            } else {
+                                if (callback) callback();
+                            }
+                        }
+
+                        requestAnimationFrame(fadeInStep);
+                    }, 600);
+                }
+            }
+
+            requestAnimationFrame(fadeOutStep);
+        }
+
+        function update3DBoardCanvas(mainText, level, score, lives, subText = null) {
+            if (!boardContext) return;
+            const ctx = boardContext;
+
+            ctx.clearRect(0, 0, 1024, 512);
+
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+            ctx.beginPath();
+            ctx.rect(20, 20, 984, 472);
+            ctx.fill();
+
+            ctx.lineWidth = 10;
+            ctx.strokeStyle = '#00f3ff';
+            ctx.stroke();
+
+            ctx.fillStyle = '#00f3ff';
+            ctx.font = 'bold 36px Segoe UI, Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`MATH NINJA  |  NÍVEL ${level}`, 512, 85);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 96px Segoe UI, Arial, sans-serif';
+            ctx.shadowColor = '#00f3ff';
+            ctx.shadowBlur = 20;
+            ctx.fillText(mainText, 512, 240);
+            ctx.shadowBlur = 0;
+
+            if (subText) {
+                ctx.fillStyle = '#ff0055';
+                ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+                ctx.fillText(subText, 512, 350);
+            } else {
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = 'bold 36px Segoe UI, Arial, sans-serif';
+                ctx.fillText('CORTE A FRUTA COM O RESULTADO CORRETO!', 512, 350);
+            }
+
+            ctx.fillStyle = '#38bdf8';
+            ctx.font = '32px Segoe UI, Arial, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(`PONTOS: ${score}`, 70, 440);
+
+            ctx.fillStyle = '#ef4444';
+            ctx.textAlign = 'right';
+            ctx.fillText(`VIDAS: ${'❤ '.repeat(Math.max(0, lives))}`, 954, 440);
+
+            if (boardTexture) boardTexture.needsUpdate = true;
+        }
+
+        // ==========================================
+        // 5. 3D FRUIT MODELS & PROCEDURAL TEXTURES
+        // ==========================================
+        function createFruitTexture(type) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            if (type === 'watermelon') {
+                ctx.fillStyle = '#16a34a';
+                ctx.fillRect(0, 0, 512, 512);
+                
+                ctx.fillStyle = '#052e16';
+                for (let x = 0; x < 512; x += 64) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    for (let y = 0; y <= 512; y += 32) {
+                        const wave = Math.sin(y * 0.04) * 10;
+                        ctx.lineTo(x + 26 + wave, y);
+                    }
+                    for (let y = 512; y >= 0; y -= 32) {
+                        const wave = Math.sin(y * 0.04) * 10;
+                        ctx.lineTo(x + wave, y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            } else if (type === 'apple') {
+                const grad = ctx.createLinearGradient(0, 0, 0, 512);
+                grad.addColorStop(0, '#991b1b');
+                grad.addColorStop(0.25, '#dc2626');
+                grad.addColorStop(0.6, '#ef4444');
+                grad.addColorStop(0.85, '#f59e0b');
+                grad.addColorStop(1, '#b91c1c');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 512, 512);
+
+                ctx.fillStyle = 'rgba(254, 240, 138, 0.35)';
+                for (let i = 0; i < 90; i++) {
+                    ctx.beginPath();
+                    ctx.arc(Math.random() * 512, Math.random() * 512, 1.5 + Math.random() * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else if (type === 'banana') {
+                const grad = ctx.createLinearGradient(0, 0, 0, 512);
+                grad.addColorStop(0, '#65a30d');
+                grad.addColorStop(0.12, '#facc15');
+                grad.addColorStop(0.88, '#eab308');
+                grad.addColorStop(1, '#78350f');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 512, 512);
+
+                ctx.fillStyle = 'rgba(113, 63, 18, 0.35)';
+                for (let i = 0; i < 35; i++) {
+                    ctx.beginPath();
+                    ctx.arc(Math.random() * 512, 60 + Math.random() * 390, 2 + Math.random() * 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else {
+                const grad = ctx.createLinearGradient(0, 0, 0, 512);
+                grad.addColorStop(0, '#ca8a04');
+                grad.addColorStop(0.5, '#f59e0b');
+                grad.addColorStop(1, '#b45309');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 512, 512);
+
+                ctx.strokeStyle = '#78350f';
+                ctx.lineWidth = 6;
+                const step = 64;
+                for (let y = -step; y < 512 + step; y += step) {
+                    for (let x = -step; x < 512 + step; x += step) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, y - step / 2);
+                        ctx.lineTo(x + step / 2, y);
+                        ctx.lineTo(x, y + step / 2);
+                        ctx.lineTo(x - step / 2, y);
+                        ctx.closePath();
+                        ctx.stroke();
+
+                        ctx.fillStyle = '#92400e';
+                        ctx.beginPath();
+                        ctx.arc(x, y, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createFruitMesh(fruitType) {
+            const group = new THREE.Group();
+            const texture = createFruitTexture(fruitType.shape);
+
+            if (fruitType.shape === 'watermelon') {
+                const radius = fruitType.size * 1.15;
+                const outerGeo = new THREE.SphereGeometry(radius, 32, 24, 0, Math.PI, 0, Math.PI);
+                const outerMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.35, metalness: 0.05 });
+                const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+                outerMesh.rotation.x = Math.PI / 2;
+                group.add(outerMesh);
+
+                const rindGeo = new THREE.CircleGeometry(radius * 0.99, 32);
+                const rindMat = new THREE.MeshStandardMaterial({ color: 0xdcfce7, roughness: 0.5, side: THREE.DoubleSide });
+                const rindMesh = new THREE.Mesh(rindGeo, rindMat);
+                rindMesh.position.y = 0.002;
+                rindMesh.rotation.x = -Math.PI / 2;
+                group.add(rindMesh);
+
+                const fleshGeo = new THREE.CircleGeometry(radius * 0.88, 32);
+                const fleshMat = new THREE.MeshStandardMaterial({ 
+                    color: 0xf43f5e, 
+                    roughness: 0.4, 
+                    emissive: 0x881337,
+                    emissiveIntensity: 0.15,
+                    side: THREE.DoubleSide 
+                });
+                const fleshMesh = new THREE.Mesh(fleshGeo, fleshMat);
+                fleshMesh.position.y = 0.006;
+                fleshMesh.rotation.x = -Math.PI / 2;
+                group.add(fleshMesh);
+
+                const seedGeo = new THREE.SphereGeometry(0.022, 8, 8);
+                seedGeo.scale(0.6, 0.3, 1.3);
+                const seedMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.2 });
+                
+                for (let i = 0; i < 10; i++) {
+                    const angle = (i / 10) * Math.PI * 2;
+                    const dist = radius * (0.45 + (i % 2) * 0.2);
+                    const seed = new THREE.Mesh(seedGeo, seedMat);
+                    seed.position.set(Math.cos(angle) * dist, 0.01, Math.sin(angle) * dist);
+                    seed.rotation.y = -angle;
+                    group.add(seed);
+                }
+
+                group.rotation.x = 0.85;
+
+            } else if (fruitType.shape === 'apple') {
+                const bodyGeo = new THREE.SphereGeometry(fruitType.size, 36, 36);
+                const pos = bodyGeo.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    const x = pos.getX(i);
+                    const y = pos.getY(i);
+                    const z = pos.getZ(i);
+                    const rXZ = Math.sqrt(x * x + z * z);
+                    const taper = 1.0 - (y < 0 ? Math.abs(y) * 0.28 : 0);
+                    const indent = Math.exp(-rXZ * 9) * 0.14;
+                    
+                    pos.setX(i, x * taper);
+                    pos.setZ(i, z * taper);
+                    if (y > 0) pos.setY(i, (y * 0.94) - indent);
+                    else pos.setY(i, (y * 0.94) + indent * 0.6);
+                }
+                bodyGeo.computeVertexNormals();
+
+                const bodyMat = new THREE.MeshStandardMaterial({ 
+                    map: texture, 
+                    roughness: 0.16, 
+                    metalness: 0.08 
+                });
+                const body = new THREE.Mesh(bodyGeo, bodyMat);
+                group.add(body);
+
+                const stemCurve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(0, fruitType.size * 0.65, 0),
+                    new THREE.Vector3(0.02, fruitType.size * 0.88, 0.01),
+                    new THREE.Vector3(0.06, fruitType.size * 1.05, 0.02)
+                ]);
+                const stemGeo = new THREE.TubeGeometry(stemCurve, 8, 0.018, 8, false);
+                const stemMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.85 });
+                const stem = new THREE.Mesh(stemGeo, stemMat);
+                group.add(stem);
+
+                const leafGeo = new THREE.SphereGeometry(0.14, 16, 12);
+                leafGeo.scale(1.3, 0.12, 0.65);
+                const leafMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.35 });
+                const leaf = new THREE.Mesh(leafGeo, leafMat);
+                leaf.position.set(0.14, fruitType.size * 0.88, 0.02);
+                leaf.rotation.set(0.2, 0.2, 0.35);
+                group.add(leaf);
+
+            } else if (fruitType.shape === 'banana') {
+                const curve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(-0.36, 0.42, 0),
+                    new THREE.Vector3(-0.14, 0.14, 0),
+                    new THREE.Vector3(0.08, -0.14, 0),
+                    new THREE.Vector3(0.36, -0.42, 0)
+                ]);
+
+                const bodyGeo = new THREE.TubeGeometry(curve, 24, fruitType.size * 0.34, 7, false);
+                const pos = bodyGeo.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    const x = pos.getX(i);
+                    const y = pos.getY(i);
+                    const z = pos.getZ(i);
+                    const center = curve.getPointAt(Math.min(1, Math.max(0, (0.42 - y) / 0.84)));
+                    const distFromMid = Math.abs(y) / 0.42;
+                    const scaleFactor = Math.max(0.22, 1.0 - Math.pow(distFromMid, 2.4) * 0.78);
+                    
+                    pos.setX(i, center.x + (x - center.x) * scaleFactor);
+                    pos.setY(i, center.y + (y - center.y) * scaleFactor);
+                    pos.setZ(i, center.z + (z - center.z) * scaleFactor);
+                }
+                bodyGeo.computeVertexNormals();
+
+                const bodyMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.28, metalness: 0.05 });
+                const body = new THREE.Mesh(bodyGeo, bodyMat);
+                group.add(body);
+
+                const topTipGeo = new THREE.CylinderGeometry(0.025, 0.04, 0.12, 7);
+                const topTipMat = new THREE.MeshStandardMaterial({ color: 0x4d7c0f, roughness: 0.7 });
+                const topTip = new THREE.Mesh(topTipGeo, topTipMat);
+                topTip.position.set(-0.39, 0.46, 0);
+                topTip.rotation.z = Math.PI / 4;
+                group.add(topTip);
+
+                const botTipGeo = new THREE.CylinderGeometry(0.032, 0.015, 0.08, 7);
+                const botTipMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.9 });
+                const botTip = new THREE.Mesh(botTipGeo, botTipMat);
+                botTip.position.set(0.39, -0.46, 0);
+                botTip.rotation.z = Math.PI / 4;
+                group.add(botTip);
+
+            } else {
+                const bodyGeo = new THREE.SphereGeometry(fruitType.size * 0.88, 24, 20);
+                bodyGeo.scale(0.88, 1.25, 0.88);
+                
+                const pos = bodyGeo.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    const x = pos.getX(i);
+                    const y = pos.getY(i);
+                    const z = pos.getZ(i);
+                    const angle = Math.atan2(z, x);
+                    const bump = Math.abs(Math.sin(angle * 6 + y * 10)) * 0.032;
+                    pos.setX(i, x + Math.cos(angle) * bump);
+                    pos.setZ(i, z + Math.sin(angle) * bump);
+                }
+                bodyGeo.computeVertexNormals();
+
+                const bodyMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.42, metalness: 0.1 });
+                const body = new THREE.Mesh(bodyGeo, bodyMat);
+                group.add(body);
+
+                const layers = [
+                    { count: 8, radius: 0.13, height: 0.42, tilt: 0.55, yOff: 0.88 },
+                    { count: 7, radius: 0.09, height: 0.52, tilt: 0.32, yOff: 0.96 },
+                    { count: 5, radius: 0.04, height: 0.58, tilt: 0.12, yOff: 1.04 }
+                ];
+
+                layers.forEach((layer, lIdx) => {
+                    for (let i = 0; i < layer.count; i++) {
+                        const leafGeo = new THREE.ConeGeometry(0.075, layer.height, 4);
+                        leafGeo.scale(1.1, 1.0, 0.3);
+                        const leafMat = new THREE.MeshStandardMaterial({ 
+                            color: lIdx % 2 === 0 ? 0x15803d : 0x22c55e, 
+                            roughness: 0.35 
+                        });
+                        const leaf = new THREE.Mesh(leafGeo, leafMat);
+                        const angle = (i / layer.count) * Math.PI * 2 + (lIdx * 0.4);
+                        leaf.position.set(
+                            Math.cos(angle) * layer.radius,
+                            fruitType.size * layer.yOff,
+                            Math.sin(angle) * layer.radius
+                        );
+                        leaf.rotation.y = -angle;
+                        leaf.rotation.z = -layer.tilt;
+                        group.add(leaf);
+                    }
+                });
+            }
+
+            return group;
+        }
+
+        // ==========================================
+        // 6. FRUIT SPAWNING & COLLISIONS
+        // ==========================================
+        function spawnFruitWave() {
+            if (!gameState.active || !gameState.currentQuestion) return;
+
+            clearAllFruits();
+
+            const options = gameState.currentQuestion.allOptions;
+            const count = options.length;
+
+            const startX = -2.0;
+            const stepX = 4.0 / (count - 1);
+
+            options.forEach((val, index) => {
+                const isCorrect = (val === gameState.currentQuestion.correctAnswer);
+                const fruitType = FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+
+                const fruitGroup = createFruitMesh(fruitType);
+
+                const numberSprite = createNumberSprite(val);
+                numberSprite.position.set(0, fruitType.size + 0.25, 0);
+                fruitGroup.add(numberSprite);
+
+                const posX = startX + (index * stepX);
+                const posY = -0.5;
+                const posZ = -1.6 - (index % 2 === 0 ? 0.25 : -0.1);
+
+                fruitGroup.position.set(posX, posY, posZ);
+
+                const vy = 2.9 + (Math.random() * 0.3);
+                const vx = (0 - posX) * 0.12;
+                const vz = 0.1;
+
+                fruits.push({
+                    group: fruitGroup,
+                    value: val,
+                    isCorrect: isCorrect,
+                    velocity: new THREE.Vector3(vx, vy, vz),
+                    rotVelocity: new THREE.Vector3(0.3, 0.5, 0.2),
+                    radius: fruitType.size,
+                    sliced: false
+                });
+
+                scene.add(fruitGroup);
+            });
+        }
+
+        function createNumberSprite(numberValue) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+            ctx.beginPath();
+            ctx.arc(128, 128, 110, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.lineWidth = 12;
+            ctx.strokeStyle = '#00f3ff';
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 120px Segoe UI, Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 10;
+            ctx.strokeText(numberValue.toString(), 128, 128);
+            ctx.fillText(numberValue.toString(), 128, 128);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.scale.set(0.55, 0.55, 1);
+            return sprite;
+        }
+
+        function clearAllFruits() {
+            fruits.forEach(f => scene.remove(f.group));
+            fruits = [];
+        }
+
+        function createSliceParticles(position, colorHex) {
+            const particleCount = 20;
+            const pGeo = new THREE.BufferGeometry();
+            const positions = [];
+            const velocities = [];
+
+            for (let i = 0; i < particleCount; i++) {
+                positions.push(position.x, position.y, position.z);
+                velocities.push(
+                    (Math.random() - 0.5) * 4,
+                    (Math.random() - 0.5) * 4 + 2,
+                    (Math.random() - 0.5) * 4
+                );
+            }
+
+            pGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            const pMat = new THREE.PointsMaterial({ color: colorHex, size: 0.08, transparent: true, opacity: 1 });
+            const pMesh = new THREE.Points(pGeo, pMat);
+            scene.add(pMesh);
+
+            particles.push({ mesh: pMesh, velocities: velocities, life: 1.0 });
+        }
+
+        function updateParticles(delta) {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.life -= delta * 2;
+                if (p.life <= 0) {
+                    scene.remove(p.mesh);
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                p.mesh.material.opacity = p.life;
+                const pos = p.mesh.geometry.attributes.position.array;
+
+                for (let j = 0; j < pos.length / 3; j++) {
+                    pos[j * 3] += p.velocities[j * 3] * delta;
+                    pos[j * 3 + 1] += p.velocities[j * 3 + 1] * delta;
+                    pos[j * 3 + 2] += p.velocities[j * 3 + 2] * delta;
+                    p.velocities[j * 3 + 1] -= 9.8 * delta;
+                }
+                p.mesh.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        function getBladeTipPosition(saberGroup) {
+            const tipPos = new THREE.Vector3(0, 0.8, 0);
+            return saberGroup.localToWorld(tipPos);
+        }
+
+        function checkSaberCollisions() {
+            if (!gameState.active || gameState.isWaitingNextWave) return;
+
+            const saberTips = [];
+
+            if (renderer && renderer.xr && renderer.xr.isPresenting) {
+                if (vrSaber0) saberTips.push(getBladeTipPosition(vrSaber0));
+                if (vrSaber1) saberTips.push(getBladeTipPosition(vrSaber1));
+            } else if (singleSaber) {
+                saberTips.push(getBladeTipPosition(singleSaber));
+            }
+
+            for (let i = fruits.length - 1; i >= 0; i--) {
+                const fruit = fruits[i];
+                if (!fruit || fruit.sliced) continue;
+
+                const fruitPos = fruit.group.position;
+                let hitDetected = false;
+
+                for (let tipPos of saberTips) {
+                    const dist = fruitPos.distanceTo(tipPos);
+                    if (dist < fruit.radius + 0.65) {
+                        hitDetected = true;
+                        break;
+                    }
+                }
+
+                if (hitDetected) {
+                    fruit.sliced = true;
+                    handleFruitSlice(fruit);
+                    break;
+                }
+            }
+        }
+
+        function handleFruitSlice(fruit) {
+            gameState.isWaitingNextWave = true;
+            soundFX.playSlash();
+            createSliceParticles(fruit.group.position, fruit.isCorrect ? 0x00f3ff : 0xff0055);
+            clearAllFruits();
+
+            if (fruit.isCorrect) {
+                soundFX.playCorrect();
+                gameState.score += 1;
+
+                if (gameState.score % 10 === 0) {
+                    gameState.level += 1;
+                    gameState.speedMultiplier += 0.15;
+                }
+
+                updateUI();
+                scheduleNextQuestion(1.2);
+            } else {
+                soundFX.playWrong();
+                loseLife();
+            }
+        }
+
+        function loseLife() {
+            gameState.lives -= 1;
+            updateUI();
+
+            if (gameState.lives <= 0) {
+                gameOver();
+            } else {
+                scheduleNextQuestion(1.2);
+            }
+        }
+
+        function updateUI() {
+            const scoreEl = document.getElementById('ui-score');
+            const levelEl = document.getElementById('ui-level');
+            if (scoreEl) scoreEl.innerText = gameState.score;
+            if (levelEl) levelEl.innerText = gameState.level;
+
+            const livesContainer = document.getElementById('ui-lives');
+            if (livesContainer) {
+                livesContainer.innerHTML = '';
+                for (let i = 0; i < 3; i++) {
+                    const heart = document.createElement('i');
+                    heart.className = i < gameState.lives ? 'fa-solid fa-heart text-red-500' : 'fa-regular fa-heart text-slate-600';
+                    livesContainer.appendChild(heart);
+                }
+            }
+
+            if (gameState.currentQuestion) {
+                update3DBoardCanvas(
+                    gameState.currentQuestion.questionText,
+                    gameState.level,
+                    gameState.score,
+                    gameState.lives
+                );
+            }
+        }
+
+        // ==========================================
+        // 7. GAME FLOW & INPUT HANDLERS
+        // ==========================================
+        function startGame() {
+            if (spawnTimeoutId) clearTimeout(spawnTimeoutId);
+            clearAllFruits();
+
+            gameState.active = true;
+            gameState.score = 0;
+            gameState.lives = 3;
+            gameState.level = 1;
+            gameState.speedMultiplier = 1.0;
+            gameState.isWaitingNextWave = true;
+
+            const modal = document.getElementById('modal-screen');
+            const tip = document.getElementById('desktop-tip');
+            if (modal) modal.classList.add('hidden');
+            if (tip) tip.classList.add('opacity-0');
+
+            updateUI();
+            scheduleNextQuestion(0.4);
+        }
+
+        function gameOver() {
+            gameState.active = false;
+            if (spawnTimeoutId) clearTimeout(spawnTimeoutId);
+            clearAllFruits();
+
+            const finalScore = document.getElementById('final-score');
+            const finalLevel = document.getElementById('final-level');
+            const modalTitle = document.getElementById('modal-title');
+            const modalSub = document.getElementById('modal-subtitle');
+            const modalStats = document.getElementById('modal-stats');
+            const startBtn = document.getElementById('start-btn');
+            const modal = document.getElementById('modal-screen');
+            const tip = document.getElementById('desktop-tip');
+
+            if (finalScore) finalScore.innerText = gameState.score;
+            if (finalLevel) finalLevel.innerText = gameState.level;
+            if (modalTitle) modalTitle.innerText = "FIM DE JOGO";
+            if (modalSub) modalSub.innerText = "Você perdeu todas as vidas! Afie sua lâmina e tente superar seu recorde.";
+            if (modalStats) {
+                modalStats.classList.remove('hidden');
+                modalStats.classList.add('grid');
+            }
+            if (startBtn) startBtn.innerHTML = '<i class="fa-solid fa-rotate-right mr-2"></i> JOGAR NOVAMENTE';
+            if (modal) modal.classList.remove('hidden');
+            if (tip) tip.classList.remove('opacity-0');
+
+            update3DBoardCanvas("GAME OVER", 1, gameState.score, 0, "CLIQUE EM JOGAR NOVAMENTE");
+        }
+
+        const mousePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1.6);
+        const raycasterMouse = new THREE.Raycaster();
+        const planeIntersection = new THREE.Vector3();
+
+        function onMouseMove(event) {
+            mouseVector.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseVector.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            if (singleSaber && camera) {
+                raycasterMouse.setFromCamera(mouseVector, camera);
+                if (raycasterMouse.ray.intersectPlane(mousePlane, planeIntersection)) {
+                    singleSaber.position.set(planeIntersection.x, planeIntersection.y, -1.5);
+                }
+            }
+        }
+
+        function onTouchMove(event) {
+            if (event.touches.length > 0) {
+                event.preventDefault();
+                const touch = event.touches[0];
+                mouseVector.x = (touch.clientX / window.innerWidth) * 2 - 1;
+                mouseVector.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+
+                if (singleSaber && camera) {
+                    raycasterMouse.setFromCamera(mouseVector, camera);
+                    if (raycasterMouse.ray.intersectPlane(mousePlane, planeIntersection)) {
+                        singleSaber.position.set(planeIntersection.x, planeIntersection.y, -1.5);
+                    }
+                }
+            }
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        const clock = new THREE.Clock();
+
+        function renderLoop() {
+            const delta = clock.getDelta();
+
+            if (gameState.active && !gameState.isWaitingNextWave) {
+                for (let i = fruits.length - 1; i >= 0; i--) {
+                    const fruit = fruits[i];
+                    if (!fruit || !fruit.group) continue;
+                    
+                    fruit.group.position.x += fruit.velocity.x * delta;
+                    fruit.group.position.y += fruit.velocity.y * delta;
+                    fruit.group.position.z += fruit.velocity.z * delta;
+
+                    fruit.velocity.y -= 2.6 * delta;
+
+                    fruit.group.rotation.x += fruit.rotVelocity.x * delta;
+                    fruit.group.rotation.y += fruit.rotVelocity.y * delta;
+
+                    if (fruit.group.position.y < -1.5) {
+                        const wasCorrect = fruit.isCorrect;
+                        const wasSliced = fruit.sliced;
+                        
+                        scene.remove(fruit.group);
+                        fruits.splice(i, 1);
+
+                        if (wasCorrect && !wasSliced && gameState.active) {
+                            gameState.isWaitingNextWave = true;
+                            soundFX.playWrong();
+                            clearAllFruits();
+                            loseLife();
+                            break;
+                        }
+                    }
+                }
+
+                checkSaberCollisions();
+            }
+
+            updateParticles(delta);
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        // ==========================================
+        // 8. INITIALIZATION
+        // ==========================================
+        function bindUIEvents() {
+            const startBtn = document.getElementById('start-btn');
+            if (startBtn) {
+                startBtn.addEventListener('click', () => {
+                    soundFX.init();
+                    startGame();
+                });
+            }
+
+            const audioBtn = document.getElementById('audio-toggle');
+            if (audioBtn) {
+                audioBtn.addEventListener('click', () => {
+                    soundFX.enabled = !soundFX.enabled;
+                    const icon = document.getElementById('audio-icon');
+                    if (icon) {
+                        icon.className = soundFX.enabled
+                            ? 'fa-solid fa-volume-high text-xl'
+                            : 'fa-solid fa-volume-xmark text-xl text-red-400';
+                    }
+                });
+            }
+
+            const modeBtn = document.getElementById('mode-toggle-btn');
+            if (modeBtn) modeBtn.addEventListener('click', toggleGameMode);
+
+            const modalModeBtn = document.getElementById('modal-mode-btn');
+            if (modalModeBtn) modalModeBtn.addEventListener('click', toggleGameMode);
+
+            const modalVrBtn = document.getElementById('modal-vr-btn');
+            if (modalVrBtn) modalVrBtn.addEventListener('click', enterVRMode);
+
+            const hudVrBtn = document.getElementById('hud-vr-btn');
+            if (hudVrBtn) hudVrBtn.addEventListener('click', enterVRMode);
+        }
+
+        function bootstrap() {
+            bindUIEvents();
+            try {
+                initEngine();
+            } catch (err) {
+                console.error("Erro ao iniciar motor 3D:", err);
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', bootstrap);
+        } else {
+            bootstrap();
+        }
+    </script>
+</body>
+</html>
