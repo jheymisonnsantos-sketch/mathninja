@@ -342,7 +342,7 @@
         // 3. THREE.JS & WEBXR (VR) ENGINE SETUP
         // ==========================================
         let scene, camera, renderer;
-        let singleSaber, vrController0, vrController1, vrSaber0, vrSaber1;
+        let singleSaber, vrController0, vrController1, vrSaber0, vrSaber1, vrRig, gridHelper;
         let currentXRSession = null;
         let fruits = [];
         let particles = [];
@@ -419,19 +419,20 @@
 
                 soundFX.init();
 
-                // Usa 'local' como base para evitar falhas de limite de sala (bounded-floor) ou hand-tracking
-                if (renderer && renderer.xr) {
-                    renderer.xr.setReferenceSpaceType('local');
-                }
-
+                // Tenta usar 'local-floor' para que o chão real corresponda a y = 0
                 let session;
+                let refSpaceType = 'local-floor';
                 try {
                     session = await navigator.xr.requestSession('immersive-vr', {
                         optionalFeatures: ['local-floor']
                     });
                 } catch (firstErr) {
-                    // Fallback sem nenhuma feature opcional caso o headset/navegador restrinja
+                    refSpaceType = 'local';
                     session = await navigator.xr.requestSession('immersive-vr');
+                }
+
+                if (renderer && renderer.xr) {
+                    renderer.xr.setReferenceSpaceType(refSpaceType);
                 }
 
                 currentXRSession = session;
@@ -439,13 +440,22 @@
                 session.addEventListener('end', () => {
                     currentXRSession = null;
                     if (singleSaber) singleSaber.visible = true;
+                    if (vrRig) vrRig.position.set(0, 0, 0);
+                    if (gridHelper) gridHelper.position.y = -2;
+                    if (camera) camera.position.set(0, 1.5, 1.2);
                     const hudVrBtn = document.getElementById('hud-vr-btn');
                     if (hudVrBtn) hudVrBtn.innerHTML = '<i class="fa-solid fa-vr-cardboard"></i> Entrar em VR';
                 });
 
                 await renderer.xr.setSession(session);
 
+                // Alinha o chão e a posição do jogador no espaço VR
                 if (singleSaber) singleSaber.visible = false;
+                if (gridHelper) gridHelper.position.y = 0;
+                if (vrRig) {
+                    // Se o headset não suportar local-floor (y=0 nos olhos), ajusta o rig para baixo
+                    vrRig.position.set(0, refSpaceType === 'local' ? -1.4 : 0, 0.5);
+                }
 
                 const hudVrBtn = document.getElementById('hud-vr-btn');
                 if (hudVrBtn) hudVrBtn.innerHTML = '<i class="fa-solid fa-right-from-bracket"></i> Sair do VR';
@@ -500,7 +510,7 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
-            renderer.xr.setReferenceSpaceType('local');
+            renderer.xr.setReferenceSpaceType('local-floor');
             container.appendChild(renderer.domElement);
 
             // Iluminação do Cenário
@@ -516,7 +526,7 @@
             scene.add(backLight);
 
             // Grid Neon no Chão
-            const gridHelper = new THREE.GridHelper(30, 30, 0x00f3ff, 0x1e1b4b);
+            gridHelper = new THREE.GridHelper(30, 30, 0x00f3ff, 0x1e1b4b);
             gridHelper.position.y = -2;
             scene.add(gridHelper);
 
@@ -541,9 +551,9 @@
             singleSaber.position.set(0, 0, -1.5);
             scene.add(singleSaber);
 
-            // Grupo de origem do jogador VR para alinhar a altura da câmera e controles
-            const vrRig = new THREE.Group();
-            vrRig.position.set(0, 1.2, 0.8);
+            // Grupo de origem do jogador VR (mantido em 0,0,0 para sincronizar 1:1 com as mãos reais)
+            vrRig = new THREE.Group();
+            vrRig.position.set(0, 0, 0);
             scene.add(vrRig);
 
             // Controles Espaciais VR (Sabres Duplos nas Mãos)
