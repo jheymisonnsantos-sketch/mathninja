@@ -342,30 +342,217 @@
         // 3. THREE.JS & WEBXR (VR) ENGINE SETUP
         // ==========================================
         let scene, camera, renderer;
-        let singleSaber, vrController0, vrController1, vrSaber0, vrSaber1, vrRig, gridHelper;
+        let singleSaber, vrController0, vrController1, vrSaber0, vrSaber1, gridHelper;
         let vrStartButton3D, vrLaser0, vrLaser1;
         const vrRaycaster = new THREE.Raycaster();
         const vrTempMatrix = new THREE.Matrix4();
         let currentXRSession = null;
-// ... existing code ... -->
-                // Ajusta a cena para escala real em pé/sentado no VR (chão em y = 0)
+        let floatingBoardMesh, boardCanvas, boardTexture;
+        let activeFruits = [];
+        let activeParticles = [];
+
+        let gameState = {
+            active: false,
+            score: 0,
+            level: 1,
+            lives: 3,
+            mode: 'desktop',
+            currentQuestion: null,
+            isWaitingNextWave: false,
+            nextWaveTimeout: null,
+            pointerNDC: new THREE.Vector2(0, 0),
+            isPointerActive: false,
+            lastSlashTime: 0
+        };
+
+        const clock = new THREE.Clock();
+        const raycaster = new THREE.Raycaster();
+        const pointerPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 2.5);
+
+        function createBackgroundTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createRadialGradient(256, 180, 30, 256, 256, 360);
+            grad.addColorStop(0, '#1e1b4b');
+            grad.addColorStop(0.5, '#0f172a');
+            grad.addColorStop(1, '#04040c');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 512, 512);
+
+            ctx.fillStyle = 'rgba(0, 243, 255, 0.35)';
+            for (let i = 0; i < 65; i++) {
+                const x = Math.random() * 512;
+                const y = Math.random() * 340;
+                const r = Math.random() * 1.8 + 0.5;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function initWebXRSupport() {
+            const modalVrBtn = document.getElementById('modal-vr-btn');
+            const hudVrBtn = document.getElementById('hud-vr-btn');
+            const vrStatusMsg = document.getElementById('vr-status-msg');
+
+            if (!('xr' in navigator)) {
+                return;
+            }
+
+            navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+                if (supported) {
+                    if (modalVrBtn) {
+                        modalVrBtn.classList.remove('hidden');
+                        modalVrBtn.classList.add('flex');
+                    }
+                    if (hudVrBtn) {
+                        hudVrBtn.classList.remove('hidden');
+                        hudVrBtn.classList.add('flex');
+                    }
+                }
+            }).catch((err) => {
+                console.warn("Verificação WebXR:", err);
+            });
+
+            const onSessionStarted = (session) => {
+                currentXRSession = session;
+                renderer.xr.setSession(session);
+                gameState.mode = 'vr';
+
                 if (singleSaber) singleSaber.visible = false;
                 if (gridHelper) gridHelper.position.y = 0;
-                if (floatingBoardMesh) floatingBoardMesh.position.set(0, 2.3, -4.5);
+                if (floatingBoardMesh) floatingBoardMesh.position.set(0, 2.35, -4.5);
                 if (vrStartButton3D) {
                     vrStartButton3D.position.set(0, 1.35, -3.5);
                     vrStartButton3D.visible = !gameState.active;
                 }
 
-                const hudVrBtn = document.getElementById('hud-vr-btn');
-// ... existing code ... -->
+                if (hudVrBtn) {
+                    hudVrBtn.innerHTML = '<i class="fa-solid fa-door-open"></i> Sair do VR';
+                }
+                if (vrStatusMsg) vrStatusMsg.classList.add('hidden');
+
+                updateModeUI();
+                update3DBoardCanvas(
+                    gameState.currentQuestion ? gameState.currentQuestion.questionText : "MATH NINJA",
+                    gameState.level,
+                    gameState.score,
+                    gameState.lives,
+                    gameState.active ? "CORTE A RESPOSTA CERTA" : "CORTE O BOTÃO PARA INICIAR"
+                );
+
+                session.addEventListener('end', () => {
+                    currentXRSession = null;
+                    gameState.mode = 'desktop';
+                    if (singleSaber) singleSaber.visible = true;
+                    if (gridHelper) gridHelper.position.y = -2;
+                    if (floatingBoardMesh) floatingBoardMesh.position.set(0, 3.25, -4.8);
+                    if (vrStartButton3D) vrStartButton3D.visible = false;
+                    if (vrLaser0) vrLaser0.visible = false;
+                    if (vrLaser1) vrLaser1.visible = false;
+                    if (hudVrBtn) {
+                        hudVrBtn.innerHTML = '<i class="fa-solid fa-vr-cardboard"></i> Entrar em VR';
+                    }
+                    updateModeUI();
+                });
+            };
+
+            const toggleVRSession = async () => {
+                soundFX.init();
+                if (vrStatusMsg) {
+                    vrStatusMsg.textContent = "Conectando aos óculos VR...";
+                    vrStatusMsg.classList.remove('hidden');
+                }
+
+                try {
+                    if (currentXRSession === null) {
+                        let session = null;
+                        try {
+                            session = await navigator.xr.requestSession('immersive-vr', {
+                                optionalFeatures: ['local-floor']
+                            });
+                        } catch (firstErr) {
+                            session = await navigator.xr.requestSession('immersive-vr');
+                        }
+                        onSessionStarted(session);
+                    } else {
+                        await currentXRSession.end();
+                    }
+                } catch (err) {
+                    console.warn("Falha ao iniciar sessão VR:", err);
+                    if (vrStatusMsg) {
+                        vrStatusMsg.textContent = "Não foi possível abrir o modo VR neste dispositivo/navegador.";
+                        vrStatusMsg.classList.remove('hidden');
+                    }
+                }
+            };
+
+            if (modalVrBtn) modalVrBtn.addEventListener('click', toggleVRSession);
+            if (hudVrBtn) hudVrBtn.addEventListener('click', toggleVRSession);
+        }
+
+        function initEngine() {
+            const container = document.getElementById('canvas-container');
+            if (!container) return;
+
+            scene = new THREE.Scene();
+            scene.background = createBackgroundTexture();
+            scene.fog = new THREE.FogExp2(0x090b1a, 0.032);
+
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.5, 2.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Iluminação
+            const ambientLight = new THREE.AmbientLight(0xdbeafe, 1.0);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+
+            const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.7);
+            rimLight.position.set(-6, 4, -5);
+            scene.add(rimLight);
+
+            const pointLightCyan = new THREE.PointLight(0x00f3ff, 1.5, 22);
+            pointLightCyan.position.set(-4, 4, -3);
+            scene.add(pointLightCyan);
+
+            const pointLightPink = new THREE.PointLight(0xff0055, 1.5, 22);
+            pointLightPink.position.set(4, 4, -3);
+            scene.add(pointLightPink);
+
+            // Grade Neon do Dojo
+            gridHelper = new THREE.GridHelper(32, 32, 0x00f3ff, 0x1e293b);
+            gridHelper.position.y = -2;
+            scene.add(gridHelper);
+
+            // Painel 3D das Contas no Topo
+            boardCanvas = document.createElement('canvas');
+            boardCanvas.width = 1024;
+            boardCanvas.height = 512;
+            boardTexture = new THREE.CanvasTexture(boardCanvas);
+
+            const boardGeo = new THREE.PlaneGeometry(5.2, 2.5);
+            const boardMat = new THREE.MeshBasicMaterial({ map: boardTexture });
             floatingBoardMesh = new THREE.Mesh(boardGeo, boardMat);
             floatingBoardMesh.position.set(0, 3.25, -4.8);
             floatingBoardMesh.rotation.x = 0.15;
             scene.add(floatingBoardMesh);
 
-            // Botão 3D Interativo para VR (Iniciar / Reiniciar sem tirar os óculos)
-            vrStartButton3D = createVRStartButton3D("▶ INICIAR / REINICIAR");
+            // Botão 3D Interativo para VR (pode ser cortado com o sabre ou ativado no gatilho)
+            vrStartButton3D = createVRStartButton3D("▶ CORTAR PARA INICIAR");
             vrStartButton3D.position.set(0, 1.35, -3.5);
             vrStartButton3D.visible = false;
             scene.add(vrStartButton3D);
@@ -377,7 +564,7 @@
             singleSaber.position.set(0, 0, -1.5);
             scene.add(singleSaber);
 
-            // Controles Espaciais VR adicionados diretamente na cena para rastreamento 1:1 sem distorção
+            // Controles Espaciais VR
             const laserGeo = new THREE.BufferGeometry().setFromPoints([
                 new THREE.Vector3(0, 0, 0),
                 new THREE.Vector3(0, 0, -5)
@@ -388,8 +575,10 @@
             vrSaber0.rotation.x = -Math.PI / 4;
             vrController0.add(vrSaber0);
             vrLaser0 = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({ color: 0x00f3ff }));
+            vrLaser0.visible = false;
             vrController0.add(vrLaser0);
             vrController0.addEventListener('selectstart', () => handleVRControllerTrigger(vrController0));
+            vrController0.addEventListener('squeezestart', () => handleVRControllerTrigger(vrController0));
             scene.add(vrController0);
 
             vrController1 = renderer.xr.getController(1);
@@ -397,36 +586,149 @@
             vrSaber1.rotation.x = -Math.PI / 4;
             vrController1.add(vrSaber1);
             vrLaser1 = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({ color: 0xff0055 }));
+            vrLaser1.visible = false;
             vrController1.add(vrLaser1);
             vrController1.addEventListener('selectstart', () => handleVRControllerTrigger(vrController1));
+            vrController1.addEventListener('squeezestart', () => handleVRControllerTrigger(vrController1));
             scene.add(vrController1);
 
             window.addEventListener('resize', onWindowResize);
-// ... existing code ... -->
+            setupPointerControls();
+            initWebXRSupport();
+
+            renderer.setAnimationLoop(renderLoop);
+        }
+
+        function createSaberMesh(colorHex) {
+            const saberGroup = new THREE.Group();
+
+            const hiltGeo = new THREE.CylinderGeometry(0.025, 0.032, 0.24, 16);
+            const hiltMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.2 });
+            const hilt = new THREE.Mesh(hiltGeo, hiltMat);
+            saberGroup.add(hilt);
+
+            const guardGeo = new THREE.CylinderGeometry(0.042, 0.042, 0.025, 16);
+            const guardMat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 0.5 });
+            const guard = new THREE.Mesh(guardGeo, guardMat);
+            guard.position.y = 0.12;
+            saberGroup.add(guard);
+
+            const bladeGeo = new THREE.CylinderGeometry(0.012, 0.018, 0.85, 16);
+            const bladeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const blade = new THREE.Mesh(bladeGeo, bladeMat);
+            blade.position.y = 0.55;
+            saberGroup.add(blade);
+
+            const glowGeo = new THREE.CylinderGeometry(0.032, 0.038, 0.88, 16);
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: 0.45
+            });
+            const glow = new THREE.Mesh(glowGeo, glowMat);
+            glow.position.y = 0.55;
+            saberGroup.add(glow);
+
+            return saberGroup;
+        }
+
+        // ==========================================
+        // 4. 3D BOARD & AUTO-FIT TEXT RENDERING
+        // ==========================================
+        function fitCanvasText(ctx, text, maxWidth, initialSize, weight = 'bold') {
+            let fontSize = initialSize;
+            ctx.font = `${weight} ${fontSize}px Segoe UI, Arial, sans-serif`;
+            while (ctx.measureText(text).width > maxWidth && fontSize > 16) {
+                fontSize -= 2;
+                ctx.font = `${weight} ${fontSize}px Segoe UI, Arial, sans-serif`;
+            }
+            return fontSize;
+        }
+
+        function update3DBoardCanvas(questionText, level, score, lives, statusMessage = "") {
+            if (!boardCanvas) return;
+            const ctx = boardCanvas.getContext('2d');
+            const w = boardCanvas.width;
+            const h = boardCanvas.height;
+
+            // Fundo
+            ctx.fillStyle = '#090d16';
+            ctx.fillRect(0, 0, w, h);
+
+            // Borda Neon Dupla
+            ctx.lineWidth = 10;
+            ctx.strokeStyle = '#00f3ff';
+            ctx.strokeRect(14, 14, w - 28, h - 28);
+
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#ff0055';
+            ctx.strokeRect(28, 28, w - 56, h - 56);
+
+            // Cabeçalho: Nível, Pontos e Vidas
+            const livesStr = '♥'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 3 - lives));
+            const headerLeft = `NÍVEL ${level}  |  PONTOS: ${score}`;
+            ctx.textBaseline = 'middle';
+
+            fitCanvasText(ctx, headerLeft, 600, 32, 'bold');
+            ctx.fillStyle = '#94a3b8';
+            ctx.textAlign = 'left';
+            ctx.fillText(headerLeft, 54, 72);
+
+            fitCanvasText(ctx, livesStr, 260, 36, 'bold');
+            ctx.fillStyle = '#ef4444';
+            ctx.textAlign = 'right';
+            ctx.fillText(livesStr, w - 54, 72);
+
+            // Linha divisória superior
+            ctx.strokeStyle = 'rgba(0, 243, 255, 0.25)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(48, 110);
+            ctx.lineTo(w - 48, 110);
+            ctx.stroke();
+
+            // Conta Matemática Central com autoajuste de largura
+            fitCanvasText(ctx, questionText, w - 120, 116, '900');
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#00f3ff';
+            ctx.shadowBlur = 22;
+            ctx.fillText(questionText, w / 2, 265);
+            ctx.shadowBlur = 0;
+
+            // Mensagem inferior com autoajuste para nunca cortar
+            if (statusMessage) {
+                fitCanvasText(ctx, statusMessage, w - 120, 32, 'bold');
+                ctx.fillStyle = '#38bdf8';
+                ctx.textAlign = 'center';
+                ctx.fillText(statusMessage, w / 2, 425);
+            }
+
             if (boardTexture) boardTexture.needsUpdate = true;
         }
 
         function createVRStartButton3D(labelText) {
             const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 160;
+            canvas.width = 640;
+            canvas.height = 170;
             const ctx = canvas.getContext('2d');
 
             ctx.fillStyle = '#0f172a';
-            ctx.fillRect(0, 0, 512, 160);
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
             ctx.lineWidth = 10;
             ctx.strokeStyle = '#00f3ff';
-            ctx.strokeRect(8, 8, 496, 144);
+            ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
 
+            fitCanvasText(ctx, labelText, canvas.width - 70, 40, 'bold');
             ctx.fillStyle = '#00f3ff';
-            ctx.font = 'bold 36px Segoe UI, Arial, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(labelText, 256, 82);
+            ctx.fillText(labelText, canvas.width / 2, canvas.height / 2);
 
             const tex = new THREE.CanvasTexture(canvas);
-            const geo = new THREE.PlaneGeometry(1.8, 0.56);
-            const mat = new THREE.MeshBasicMaterial({ map: tex });
+            const geo = new THREE.PlaneGeometry(2.1, 0.56);
+            const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
             return new THREE.Mesh(geo, mat);
         }
 
@@ -434,13 +736,11 @@
             if (!renderer || !renderer.xr || !renderer.xr.isPresenting) return;
             soundFX.init();
 
-            // Se o jogo não estiver ativo (Tela inicial ou Game Over em VR), o gatilho inicia/reinicia!
             if (!gameState.active) {
                 startGame();
                 return;
             }
 
-            // Verifica clique via raycast no botão 3D caso visível
             if (vrStartButton3D && vrStartButton3D.visible && controller) {
                 vrTempMatrix.identity().extractRotation(controller.matrixWorld);
                 vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
@@ -454,7 +754,565 @@
 
         // ==========================================
         // 5. 3D FRUIT MODELS & PROCEDURAL TEXTURES
-// ... existing code ... -->
+        // ==========================================
+        function createFruitSkinTexture(type) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            if (type === 'watermelon') {
+                const baseGrad = ctx.createLinearGradient(0, 0, 0, 512);
+                baseGrad.addColorStop(0, '#22c55e');
+                baseGrad.addColorStop(0.5, '#16a34a');
+                baseGrad.addColorStop(1, '#14532d');
+                ctx.fillStyle = baseGrad;
+                ctx.fillRect(0, 0, 512, 512);
+
+                ctx.fillStyle = '#052e16';
+                for (let i = 0; i < 12; i++) {
+                    const baseX = (i / 12) * 512;
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, 0);
+                    for (let y = 0; y <= 512; y += 32) {
+                        const wave = Math.sin((y / 512) * Math.PI * 6 + i) * 9;
+                        ctx.lineTo(baseX + 20 + wave, y);
+                    }
+                    for (let y = 512; y >= 0; y -= 32) {
+                        const wave = Math.sin((y / 512) * Math.PI * 6 + i) * 9;
+                        ctx.lineTo(baseX + wave, y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            } else if (type === 'apple') {
+                const grad = ctx.createLinearGradient(0, 0, 0, 512);
+                grad.addColorStop(0, '#f87171');
+                grad.addColorStop(0.25, '#dc2626');
+                grad.addColorStop(0.75, '#b91c1c');
+                grad.addColorStop(1, '#7f1d1d');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 512, 512);
+
+                ctx.fillStyle = 'rgba(254, 240, 138, 0.35)';
+                for (let i = 0; i < 90; i++) {
+                    ctx.beginPath();
+                    ctx.arc(Math.random() * 512, Math.random() * 512, 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else if (type === 'banana') {
+                const grad = ctx.createLinearGradient(0, 0, 0, 512);
+                grad.addColorStop(0, '#84cc16');
+                grad.addColorStop(0.15, '#fde047');
+                grad.addColorStop(0.85, '#facc15');
+                grad.addColorStop(1, '#713f12');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 512, 512);
+
+                ctx.fillStyle = 'rgba(113, 63, 18, 0.25)';
+                for (let i = 0; i < 45; i++) {
+                    ctx.beginPath();
+                    ctx.ellipse(Math.random() * 512, Math.random() * 512, 2, 5, Math.random(), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else {
+                ctx.fillStyle = '#d97706';
+                ctx.fillRect(0, 0, 512, 512);
+
+                const step = 64;
+                for (let y = -step; y < 512 + step; y += step) {
+                    for (let x = -step; x < 512 + step; x += step) {
+                        const offsetX = (Math.floor(y / step) % 2) * (step / 2);
+                        const cx = x + offsetX;
+                        const cy = y;
+
+                        ctx.fillStyle = '#fbbf24';
+                        ctx.beginPath();
+                        ctx.moveTo(cx, cy - 28);
+                        ctx.lineTo(cx + 28, cy);
+                        ctx.lineTo(cx, cy + 28);
+                        ctx.lineTo(cx - 28, cy);
+                        ctx.closePath();
+                        ctx.fill();
+
+                        ctx.strokeStyle = '#78350f';
+                        ctx.lineWidth = 4;
+                        ctx.stroke();
+
+                        ctx.fillStyle = '#92400e';
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createNumberBadge(numberVal) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.beginPath();
+            ctx.arc(128, 128, 108, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+            ctx.fill();
+
+            ctx.lineWidth = 10;
+            ctx.strokeStyle = '#00f3ff';
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '900 112px Segoe UI, Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#00f3ff';
+            ctx.shadowBlur = 15;
+            ctx.fillText(numberVal.toString(), 128, 134);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(0.68, 0.68, 1);
+            sprite.position.set(0, 0, 0.52);
+            return sprite;
+        }
+
+        function createFruitMesh(numberVal) {
+            const fruitTypes = ['watermelon', 'apple', 'banana', 'pineapple'];
+            const type = fruitTypes[Math.floor(Math.random() * fruitTypes.length)];
+            const group = new THREE.Group();
+            let splashColor = 0xff3355;
+
+            if (type === 'watermelon') {
+                const rindMat = new THREE.MeshStandardMaterial({
+                    map: createFruitSkinTexture('watermelon'),
+                    roughness: 0.35,
+                    metalness: 0.05
+                });
+                const rindGeo = new THREE.SphereGeometry(0.46, 28, 20, 0, Math.PI * 2, Math.PI * 0.48, Math.PI * 0.52);
+                const rindMesh = new THREE.Mesh(rindGeo, rindMat);
+                rindMesh.rotation.x = 0.35;
+                group.add(rindMesh);
+
+                const pithGeo = new THREE.CircleGeometry(0.455, 28);
+                const pithMat = new THREE.MeshStandardMaterial({ color: 0xecfccb, side: THREE.DoubleSide });
+                const pithMesh = new THREE.Mesh(pithGeo, pithMat);
+                pithMesh.rotation.x = -Math.PI / 2 + 0.35;
+                group.add(pithMesh);
+
+                const fleshGeo = new THREE.CircleGeometry(0.41, 28);
+                const fleshMat = new THREE.MeshStandardMaterial({ color: 0xf43f5e, roughness: 0.25, side: THREE.DoubleSide });
+                const fleshMesh = new THREE.Mesh(fleshGeo, fleshMat);
+                fleshMesh.position.y = 0.006;
+                fleshMesh.rotation.x = -Math.PI / 2 + 0.35;
+                group.add(fleshMesh);
+
+                const seedGeo = new THREE.SphereGeometry(0.018, 8, 8);
+                seedGeo.scale(0.6, 0.4, 1.3);
+                const seedMat = new THREE.MeshBasicMaterial({ color: 0x1c1917 });
+                for (let i = 0; i < 12; i++) {
+                    const angle = (i / 12) * Math.PI * 2;
+                    const dist = (i % 2 === 0) ? 0.22 : 0.31;
+                    const seed = new THREE.Mesh(seedGeo, seedMat);
+                    seed.position.set(Math.cos(angle) * dist, 0.015, Math.sin(angle) * dist);
+                    seed.rotation.y = -angle;
+                    group.add(seed);
+                }
+
+                splashColor = 0xf43f5e;
+            } else if (type === 'apple') {
+                const points = [];
+                for (let i = 0; i <= 20; i++) {
+                    const t = i / 20;
+                    const angle = t * Math.PI;
+                    const r = Math.sin(angle) * 0.42 + Math.sin(angle * 2) * 0.04;
+                    const y = -Math.cos(angle) * 0.38 - Math.pow(Math.cos(angle), 4) * 0.06;
+                    points.push(new THREE.Vector2(Math.max(0.001, r), y));
+                }
+                const appleGeo = new THREE.LatheGeometry(points, 28);
+                const appleMat = new THREE.MeshPhysicalMaterial({
+                    map: createFruitSkinTexture('apple'),
+                    roughness: 0.18,
+                    metalness: 0.05,
+                    clearcoat: 0.8,
+                    clearcoatRoughness: 0.15
+                });
+                const appleMesh = new THREE.Mesh(appleGeo, appleMat);
+                group.add(appleMesh);
+
+                const stemCurve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(0, 0.28, 0),
+                    new THREE.Vector3(0.02, 0.38, 0.01),
+                    new THREE.Vector3(0.06, 0.46, 0.02)
+                ]);
+                const stemGeo = new THREE.TubeGeometry(stemCurve, 8, 0.018, 8, false);
+                const stemMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.8 });
+                group.add(new THREE.Mesh(stemGeo, stemMat));
+
+                const leafShape = new THREE.Shape();
+                leafShape.moveTo(0, 0);
+                leafShape.quadraticCurveTo(0.11, 0.09, 0.24, 0.02);
+                leafShape.quadraticCurveTo(0.12, -0.07, 0, 0);
+                const leafGeo = new THREE.ShapeGeometry(leafShape);
+                const leafMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.4, side: THREE.DoubleSide });
+                const leaf = new THREE.Mesh(leafGeo, leafMat);
+                leaf.position.set(0.02, 0.39, 0);
+                leaf.rotation.set(0.3, 0.2, 0.35);
+                group.add(leaf);
+
+                splashColor = 0xdc2626;
+            } else if (type === 'banana') {
+                const bananaCurve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(-0.36, 0.26, 0),
+                    new THREE.Vector3(-0.20, -0.06, 0),
+                    new THREE.Vector3(0.04, -0.18, 0),
+                    new THREE.Vector3(0.28, -0.05, 0),
+                    new THREE.Vector3(0.39, 0.22, 0)
+                ]);
+                const bananaGeo = new THREE.TubeGeometry(bananaCurve, 24, 0.12, 8, false);
+                const posAttr = bananaGeo.attributes.position;
+                const v = new THREE.Vector3();
+                for (let i = 0; i < posAttr.count; i++) {
+                    v.fromBufferAttribute(posAttr, i);
+                    const center = bananaCurve.getPointAt(Math.min(1, Math.max(0, (v.x + 0.36) / 0.75)));
+                    const t = Math.min(1, Math.max(0, (v.x + 0.36) / 0.75));
+                    const taper = Math.sin(t * Math.PI) * 0.85 + 0.22;
+                    v.sub(center).multiplyScalar(taper).add(center);
+                    posAttr.setXYZ(i, v.x, v.y, v.z);
+                }
+                bananaGeo.computeVertexNormals();
+
+                const bananaMat = new THREE.MeshStandardMaterial({
+                    map: createFruitSkinTexture('banana'),
+                    roughness: 0.3,
+                    metalness: 0.05
+                });
+                const bananaMesh = new THREE.Mesh(bananaGeo, bananaMat);
+                group.add(bananaMesh);
+
+                const tipGeo = new THREE.CylinderGeometry(0.02, 0.032, 0.08, 8);
+                const stemTip = new THREE.Mesh(tipGeo, new THREE.MeshStandardMaterial({ color: 0x4d7c0f }));
+                stemTip.position.set(-0.37, 0.29, 0);
+                stemTip.rotation.z = 0.45;
+                group.add(stemTip);
+
+                const endTip = new THREE.Mesh(tipGeo, new THREE.MeshStandardMaterial({ color: 0x451a03 }));
+                endTip.position.set(0.40, 0.24, 0);
+                endTip.rotation.z = -0.35;
+                group.add(endTip);
+
+                splashColor = 0xfacc15;
+            } else {
+                const bodyGeo = new THREE.SphereGeometry(0.36, 20, 18);
+                bodyGeo.scale(0.86, 1.28, 0.86);
+                const bodyMat = new THREE.MeshStandardMaterial({
+                    map: createFruitSkinTexture('pineapple'),
+                    roughness: 0.55
+                });
+                const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+                bodyMesh.position.y = -0.06;
+                group.add(bodyMesh);
+
+                const scaleGeo = new THREE.ConeGeometry(0.04, 0.06, 4);
+                const scaleMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.6 });
+                for (let row = -2; row <= 2; row++) {
+                    const y = row * 0.12 - 0.06;
+                    const ringRadius = Math.sqrt(Math.max(0.01, 1 - Math.pow(row * 0.3, 2))) * 0.31;
+                    const count = 8;
+                    for (let j = 0; j < count; j++) {
+                        const a = (j / count) * Math.PI * 2 + (row * 0.4);
+                        const spike = new THREE.Mesh(scaleGeo, scaleMat);
+                        spike.position.set(Math.cos(a) * ringRadius, y, Math.sin(a) * ringRadius);
+                        spike.lookAt(Math.cos(a) * 2, y + 0.3, Math.sin(a) * 2);
+                        spike.rotateX(Math.PI / 2);
+                        group.add(spike);
+                    }
+                }
+
+                const crownGroup = new THREE.Group();
+                crownGroup.position.y = 0.36;
+                const leafMat1 = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.45, side: THREE.DoubleSide });
+                const leafMat2 = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.4, side: THREE.DoubleSide });
+
+                const layers = [
+                    { count: 8, height: 0.24, tilt: 0.72, mat: leafMat1 },
+                    { count: 7, height: 0.30, tilt: 0.42, mat: leafMat2 },
+                    { count: 5, height: 0.34, tilt: 0.16, mat: leafMat2 }
+                ];
+
+                layers.forEach((layer, lIdx) => {
+                    for (let i = 0; i < layer.count; i++) {
+                        const angle = (i / layer.count) * Math.PI * 2 + lIdx * 0.5;
+                        const bladeShape = new THREE.Shape();
+                        bladeShape.moveTo(-0.045, 0);
+                        bladeShape.quadraticCurveTo(-0.03, layer.height * 0.6, 0, layer.height);
+                        bladeShape.quadraticCurveTo(0.03, layer.height * 0.6, 0.045, 0);
+                        bladeShape.closePath();
+
+                        const bladeGeo = new THREE.ShapeGeometry(bladeShape);
+                        const blade = new THREE.Mesh(bladeGeo, layer.mat);
+                        blade.rotation.y = angle;
+                        blade.rotation.x = layer.tilt;
+                        crownGroup.add(blade);
+                    }
+                });
+                group.add(crownGroup);
+
+                splashColor = 0xfbbf24;
+            }
+
+            group.add(createNumberBadge(numberVal));
+            group.userData.splashColor = splashColor;
+
+            return group;
+        }
+
+        // ==========================================
+        // 6. GAMEPLAY WAVE & FRUIT LAUNCHER
+        // ==========================================
+        function clearActiveFruits() {
+            activeFruits.forEach(f => scene.remove(f.mesh));
+            activeFruits = [];
+        }
+
+        function scheduleNextQuestion(delaySeconds = 0.8) {
+            if (gameState.nextWaveTimeout) {
+                clearTimeout(gameState.nextWaveTimeout);
+                gameState.nextWaveTimeout = null;
+            }
+            gameState.isWaitingNextWave = true;
+            gameState.nextWaveTimeout = setTimeout(() => {
+                gameState.nextWaveTimeout = null;
+                gameState.isWaitingNextWave = false;
+                if (gameState.active) {
+                    launchNewWave();
+                }
+            }, delaySeconds * 1000);
+        }
+
+        function launchNewWave() {
+            if (!gameState.active) return;
+            clearActiveFruits();
+
+            const q = generateMathQuestion(gameState.level);
+            gameState.currentQuestion = q;
+
+            update3DBoardCanvas(q.questionText, gameState.level, gameState.score, gameState.lives, "CORTE A RESPOSTA CERTA!");
+
+            const isVR = Boolean(renderer && renderer.xr && renderer.xr.isPresenting);
+            const positionsX = [-1.8, -0.6, 0.6, 1.8];
+            const shuffledPositions = shuffleArray([...positionsX]);
+
+            q.allOptions.forEach((optionValue, idx) => {
+                const isCorrect = (optionValue === q.correctAnswer);
+                const fruitMesh = createFruitMesh(optionValue);
+
+                const startX = shuffledPositions[idx];
+                const startY = isVR ? 0.1 : -1.8;
+                const startZ = -2.4 + (Math.random() * 0.3 - 0.15);
+
+                fruitMesh.position.set(startX, startY, startZ);
+                scene.add(fruitMesh);
+
+                const targetApexY = isVR ? (1.45 + Math.random() * 0.3) : (1.55 + Math.random() * 0.45);
+                const gravity = -4.2 - (gameState.level * 0.25);
+                const initialVy = Math.sqrt(2 * Math.abs(gravity) * (targetApexY - startY));
+                const vx = -startX * 0.18 + (Math.random() - 0.5) * 0.25;
+
+                activeFruits.push({
+                    mesh: fruitMesh,
+                    value: optionValue,
+                    isCorrect: isCorrect,
+                    cut: false,
+                    velocity: new THREE.Vector3(vx, initialVy, 0),
+                    gravity: gravity,
+                    rotSpeed: new THREE.Vector3(
+                        (Math.random() - 0.5) * 2.5,
+                        (Math.random() - 0.5) * 2.5,
+                        (Math.random() - 0.5) * 2.5
+                    )
+                });
+            });
+        }
+
+        // ==========================================
+        // 7. SLASH DETECTION & PARTICLE EXPLOSION
+        // ==========================================
+        function createExplosionParticles(pos, colorHex) {
+            const count = 28;
+            const geo = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 3);
+            const velocities = [];
+
+            for (let i = 0; i < count; i++) {
+                positions[i * 3] = pos.x;
+                positions[i * 3 + 1] = pos.y;
+                positions[i * 3 + 2] = pos.z;
+
+                velocities.push(new THREE.Vector3(
+                    (Math.random() - 0.5) * 5,
+                    (Math.random() - 0.5) * 5 + 1.5,
+                    (Math.random() - 0.5) * 5
+                ));
+            }
+
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = new THREE.PointsMaterial({ color: colorHex, size: 0.14 });
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+
+            activeParticles.push({
+                mesh: points,
+                velocities: velocities,
+                life: 0.75
+            });
+        }
+
+        function updateParticles(delta) {
+            for (let i = activeParticles.length - 1; i >= 0; i--) {
+                const p = activeParticles[i];
+                p.life -= delta;
+
+                if (p.life <= 0) {
+                    scene.remove(p.mesh);
+                    activeParticles.splice(i, 1);
+                    continue;
+                }
+
+                const posArr = p.mesh.geometry.attributes.position.array;
+                for (let j = 0; j < p.velocities.length; j++) {
+                    p.velocities[j].y -= 9.8 * delta;
+                    posArr[j * 3] += p.velocities[j].x * delta;
+                    posArr[j * 3 + 1] += p.velocities[j].y * delta;
+                    posArr[j * 3 + 2] += p.velocities[j].z * delta;
+                }
+                p.mesh.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        function getBladePoints(saberGroup) {
+            saberGroup.updateMatrixWorld(true);
+            const mid = new THREE.Vector3(0, 0.5, 0).applyMatrix4(saberGroup.matrixWorld);
+            const tip = new THREE.Vector3(0, 0.9, 0).applyMatrix4(saberGroup.matrixWorld);
+            return [mid, tip];
+        }
+
+        function checkBladeCollisions() {
+            const bladePoints = [];
+
+            if (renderer && renderer.xr && renderer.xr.isPresenting) {
+                if (vrSaber0) bladePoints.push(...getBladePoints(vrSaber0));
+                if (vrSaber1) bladePoints.push(...getBladePoints(vrSaber1));
+            } else if (gameState.isPointerActive && singleSaber) {
+                bladePoints.push(...getBladePoints(singleSaber));
+            }
+
+            if (bladePoints.length === 0) return;
+
+            // Permite iniciar/reiniciar cortando o botão 3D no modo VR
+            if (!gameState.active && vrStartButton3D && vrStartButton3D.visible) {
+                const btnPos = new THREE.Vector3();
+                vrStartButton3D.getWorldPosition(btnPos);
+                for (let p of bladePoints) {
+                    if (Math.abs(p.x - btnPos.x) < 1.1 && Math.abs(p.y - btnPos.y) < 0.45 && Math.abs(p.z - btnPos.z) < 0.7) {
+                        soundFX.playSlash();
+                        createExplosionParticles(btnPos, 0x00f3ff);
+                        startGame();
+                        return;
+                    }
+                }
+            }
+
+            if (!gameState.active || gameState.isWaitingNextWave) return;
+
+            for (let fruit of activeFruits) {
+                if (fruit.cut) continue;
+
+                const hit = bladePoints.some(p => p.distanceTo(fruit.mesh.position) < 0.65);
+                if (hit) {
+                    handleFruitSliced(fruit);
+                    break;
+                }
+            }
+        }
+
+        function handleFruitSliced(fruit) {
+            fruit.cut = true;
+            soundFX.playSlash();
+
+            const splashColor = fruit.mesh.userData.splashColor || (fruit.isCorrect ? 0x00f3ff : 0xff0055);
+            createExplosionParticles(fruit.mesh.position, splashColor);
+            scene.remove(fruit.mesh);
+
+            if (fruit.isCorrect) {
+                soundFX.playCorrect();
+                gameState.score += 10 * gameState.level;
+
+                if (gameState.score >= gameState.level * 50) {
+                    gameState.level++;
+                }
+
+                updateUI();
+                update3DBoardCanvas(`ACERTOU! = ${fruit.value}`, gameState.level, gameState.score, gameState.lives, "EXCELENTE! PRÓXIMA CONTA...");
+
+                activeFruits.forEach(f => {
+                    if (!f.cut) {
+                        f.cut = true;
+                        scene.remove(f.mesh);
+                    }
+                });
+
+                scheduleNextQuestion(0.85);
+            } else {
+                soundFX.playWrong();
+                loseLife("RESPOSTA ERRADA!");
+            }
+        }
+
+        function loseLife(reasonText) {
+            if (gameState.isWaitingNextWave || !gameState.active) return;
+
+            gameState.lives--;
+            updateUI();
+
+            activeFruits.forEach(f => {
+                if (!f.cut) {
+                    f.cut = true;
+                    scene.remove(f.mesh);
+                }
+            });
+
+            if (gameState.lives <= 0) {
+                endGame();
+            } else {
+                update3DBoardCanvas(reasonText, gameState.level, gameState.score, gameState.lives, "PREPARE-SE PARA A PRÓXIMA...");
+                scheduleNextQuestion(1.0);
+            }
+        }
+
+        // ==========================================
+        // 8. GAME LIFECYCLE & UI MANAGEMENT
+        // ==========================================
+        function startGame() {
+            soundFX.init();
+            if (gameState.nextWaveTimeout) {
+                clearTimeout(gameState.nextWaveTimeout);
+                gameState.nextWaveTimeout = null;
+            }
+
+            gameState.active = true;
+            gameState.score = 0;
+            gameState.level = 1;
+            gameState.lives = 3;
+            gameState.isWaitingNextWave = false;
+
             const modal = document.getElementById('modal-screen');
             const tip = document.getElementById('desktop-tip');
             if (modal) modal.classList.add('hidden');
@@ -464,20 +1322,194 @@
             updateUI();
             scheduleNextQuestion(0.4);
         }
-// ... existing code ... -->
+
+        function endGame() {
+            gameState.active = false;
+            gameState.isWaitingNextWave = false;
+            if (gameState.nextWaveTimeout) {
+                clearTimeout(gameState.nextWaveTimeout);
+                gameState.nextWaveTimeout = null;
+            }
+            clearActiveFruits();
+
+            const title = document.getElementById('modal-title');
+            const subtitle = document.getElementById('modal-subtitle');
+            const stats = document.getElementById('modal-stats');
+            const finalScore = document.getElementById('final-score');
+            const finalLevel = document.getElementById('final-level');
+            const startBtn = document.getElementById('start-btn');
+            const modal = document.getElementById('modal-screen');
+            const tip = document.getElementById('desktop-tip');
+
+            if (title) title.textContent = "FIM DE JOGO";
+            if (subtitle) subtitle.textContent = "Seus reflexos foram postos à prova! Deseja tentar bater seu recorde?";
+            if (stats) {
+                stats.classList.remove('hidden');
+                stats.classList.add('grid');
+            }
+            if (finalScore) finalScore.textContent = gameState.score;
+            if (finalLevel) finalLevel.textContent = gameState.level;
             if (startBtn) startBtn.innerHTML = '<i class="fa-solid fa-rotate-right mr-2"></i> JOGAR NOVAMENTE';
             if (modal) modal.classList.remove('hidden');
             if (tip) tip.classList.remove('opacity-0');
+
             if (vrStartButton3D && renderer && renderer.xr && renderer.xr.isPresenting) {
                 vrStartButton3D.visible = true;
             }
 
-            update3DBoardCanvas("GAME OVER", 1, gameState.score, 0, "APERTE O GATILHO PARA REINICIAR");
+            update3DBoardCanvas("GAME OVER", 1, gameState.score, 0, "CORTE O BOTÃO PARA REINICIAR");
         }
-// ... existing code ... -->
+
+        function updateUI() {
+            const scoreEl = document.getElementById('ui-score');
+            const levelEl = document.getElementById('ui-level');
+            const livesContainer = document.getElementById('ui-lives');
+
+            if (scoreEl) scoreEl.textContent = gameState.score;
+            if (levelEl) levelEl.textContent = gameState.level;
+
+            if (livesContainer) {
+                livesContainer.innerHTML = '';
+                for (let i = 0; i < 3; i++) {
+                    const icon = document.createElement('i');
+                    if (i < gameState.lives) {
+                        icon.className = "fa-solid fa-heart text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]";
+                    } else {
+                        icon.className = "fa-regular fa-heart text-slate-600";
+                    }
+                    livesContainer.appendChild(icon);
+                }
+            }
+        }
+
+        function updateModeUI() {
+            const modeText = document.getElementById('mode-text');
+            const modalModeBtn = document.getElementById('modal-mode-btn');
+            if (gameState.mode === 'vr') {
+                if (modeText) modeText.textContent = 'Modo: Óculos VR Ativo';
+                if (modalModeBtn) modalModeBtn.innerHTML = '<i class="fa-solid fa-vr-cardboard"></i> Óculos VR Conectado';
+            } else {
+                if (modeText) modeText.textContent = 'Modo: Navegador (Mouse)';
+                if (modalModeBtn) modalModeBtn.innerHTML = '<i class="fa-solid fa-mouse"></i> Controles no Navegador';
+            }
+        }
+
+        function toggleGameMode() {
+            const modalVrBtn = document.getElementById('modal-vr-btn');
+            if (modalVrBtn && !modalVrBtn.classList.contains('hidden')) {
+                modalVrBtn.click();
+            } else {
+                gameState.mode = gameState.mode === 'desktop' ? 'touch' : 'desktop';
+                const modeText = document.getElementById('mode-text');
+                const modalModeBtn = document.getElementById('modal-mode-btn');
+                if (gameState.mode === 'touch') {
+                    if (modeText) modeText.textContent = 'Modo: Toque / Tela';
+                    if (modalModeBtn) modalModeBtn.innerHTML = '<i class="fa-solid fa-hand-pointer"></i> Controles por Toque';
+                } else {
+                    updateModeUI();
+                }
+            }
+        }
+
+        // ==========================================
+        // 9. DESKTOP / TOUCH POINTER CONTROLS
+        // ==========================================
+        function setupPointerControls() {
+            const domElement = renderer.domElement;
+
+            const updatePointer = (clientX, clientY) => {
+                gameState.pointerNDC.x = (clientX / window.innerWidth) * 2 - 1;
+                gameState.pointerNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+                gameState.isPointerActive = true;
+
+                const now = performance.now();
+                if (gameState.active && now - gameState.lastSlashTime > 260) {
+                    soundFX.playSlash();
+                    gameState.lastSlashTime = now;
+                }
+            };
+
+            domElement.addEventListener('mousemove', (e) => {
+                updatePointer(e.clientX, e.clientY);
+            });
+
+            domElement.addEventListener('touchstart', (e) => {
+                if (e.touches.length > 0) {
+                    updatePointer(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }, { passive: true });
+
+            domElement.addEventListener('touchmove', (e) => {
+                if (e.touches.length > 0) {
+                    updatePointer(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }, { passive: true });
+
+            domElement.addEventListener('touchend', () => {
+                gameState.isPointerActive = false;
+            });
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // ==========================================
+        // 10. MAIN RENDER & PHYSICS LOOP
+        // ==========================================
+        function renderLoop() {
+            const delta = Math.min(clock.getDelta(), 0.05);
+
+            // Movimento do Sabre no Navegador
+            if (singleSaber && singleSaber.visible && camera) {
+                raycaster.setFromCamera(gameState.pointerNDC, camera);
+                const targetPoint = new THREE.Vector3();
+                raycaster.ray.intersectPlane(pointerPlane, targetPoint);
+
+                if (targetPoint) {
+                    singleSaber.position.lerp(targetPoint, 0.35);
+                    singleSaber.rotation.z = -gameState.pointerNDC.x * 0.9;
+                    singleSaber.rotation.x = 0.25 + gameState.pointerNDC.y * 0.35;
+                }
+            }
+
+            // Física das Frutas
+            if (gameState.active && !gameState.isWaitingNextWave && activeFruits.length > 0) {
+                let correctFruitMissed = false;
+                const isVR = Boolean(renderer && renderer.xr && renderer.xr.isPresenting);
+                const floorLimitY = isVR ? -0.3 : -2.6;
+
+                for (let i = activeFruits.length - 1; i >= 0; i--) {
+                    const fruit = activeFruits[i];
+                    if (fruit.cut) continue;
+
+                    fruit.velocity.y += fruit.gravity * delta;
+                    fruit.mesh.position.addScaledVector(fruit.velocity, delta);
+
+                    fruit.mesh.rotation.x += fruit.rotSpeed.x * delta;
+                    fruit.mesh.rotation.y += fruit.rotSpeed.y * delta;
+
+                    if (fruit.mesh.position.y < floorLimitY && fruit.velocity.y < 0) {
+                        fruit.cut = true;
+                        scene.remove(fruit.mesh);
+                        if (fruit.isCorrect) {
+                            correctFruitMissed = true;
+                        }
+                    }
+                }
+
+                if (correctFruitMissed) {
+                    soundFX.playWrong();
+                    loseLife("A RESPOSTA CERTA CAIU!");
+                }
+            }
+
+            checkBladeCollisions();
             updateParticles(delta);
 
-            // Atualiza visibilidade dos lasers de mira VR (ativos quando o jogo está pausado/Game Over)
             if (vrLaser0 && vrLaser1) {
                 const showLasers = Boolean(renderer && renderer.xr && renderer.xr.isPresenting && !gameState.active);
                 vrLaser0.visible = showLasers;
@@ -488,4 +1520,64 @@
                 renderer.render(scene, camera);
             }
         }
-// ... existing code ... -->
+
+        // ==========================================
+        // 11. INITIALIZATION & UI EVENTS
+        // ==========================================
+        function bindUIEvents() {
+            const startBtn = document.getElementById('start-btn');
+            if (startBtn) {
+                startBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    startGame();
+                });
+            }
+
+            const audioBtn = document.getElementById('audio-toggle');
+            if (audioBtn) {
+                audioBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    soundFX.enabled = !soundFX.enabled;
+                    const icon = document.getElementById('audio-icon');
+                    if (icon) {
+                        icon.className = soundFX.enabled
+                            ? 'fa-solid fa-volume-high text-xl text-cyan-400'
+                            : 'fa-solid fa-volume-xmark text-xl text-slate-500';
+                    }
+                });
+            }
+
+            const modeBtn = document.getElementById('mode-toggle-btn');
+            if (modeBtn) {
+                modeBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    toggleGameMode();
+                });
+            }
+
+            const modalModeBtn = document.getElementById('modal-mode-btn');
+            if (modalModeBtn) {
+                modalModeBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    toggleGameMode();
+                });
+            }
+        }
+
+        function bootstrap() {
+            bindUIEvents();
+            try {
+                initEngine();
+            } catch (err) {
+                console.error("Erro ao inicializar motor 3D:", err);
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', bootstrap);
+        } else {
+            bootstrap();
+        }
+    </script>
+</body>
+</html>
