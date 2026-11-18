@@ -1107,7 +1107,7 @@
             update3DBoardCanvas(q.questionText, gameState.level, gameState.score, gameState.lives, "CORTE A RESPOSTA CERTA!");
 
             const isVR = Boolean(renderer && renderer.xr && renderer.xr.isPresenting);
-            const positionsX = isVR ? [-1.65, -0.55, 0.55, 1.65] : [-2.55, -0.85, 0.85, 2.55];
+            const positionsX = isVR ? [-1.75, -0.6, 0.6, 1.75] : [-2.55, -0.85, 0.85, 2.55];
             const shuffledPositions = shuffleArray([...positionsX]);
 
             q.allOptions.forEach((optionValue, idx) => {
@@ -1116,7 +1116,7 @@
 
                 const startX = shuffledPositions[idx];
                 const startY = isVR ? 0.15 : -1.8;
-                const startZ = isVR ? (-1.25 + (idx % 2) * 0.12) : (-2.4 + (Math.random() * 0.3 - 0.15));
+                const startZ = isVR ? (-1.75 + (idx % 2) * 0.12) : (-2.4 + (Math.random() * 0.3 - 0.15));
 
                 fruitMesh.position.set(startX, startY, startZ);
                 scene.add(fruitMesh);
@@ -1131,6 +1131,7 @@
                     value: optionValue,
                     isCorrect: isCorrect,
                     cut: false,
+                    spawnTime: performance.now(),
                     velocity: new THREE.Vector3(vx, initialVy, 0),
                     gravity: gravity,
                     rotSpeed: new THREE.Vector3(
@@ -1235,9 +1236,12 @@
 
             if (!gameState.active || gameState.isWaitingNextWave) return;
 
-            const hitRadius = isVR ? 0.78 : 0.65;
+            const now = performance.now();
+            const hitRadius = isVR ? 0.46 : 0.62;
             for (let fruit of activeFruits) {
                 if (fruit.cut) continue;
+                // Evita corte acidental no exato instante em que a fruta nasce
+                if (fruit.spawnTime && (now - fruit.spawnTime) < 220) continue;
 
                 const hit = bladePoints.some(p => p.distanceTo(fruit.mesh.position) < hitRadius);
                 if (hit) {
